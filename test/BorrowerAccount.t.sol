@@ -40,7 +40,7 @@ contract BorrowerAccountTest is LoanVaultTestBase {
         // a loan whose borrower is neither this account nor its owner
         vm.prank(lender);
         uint256 foreignId =
-            vault.offer(stranger, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+            vault.offer(stranger, false, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
         vm.expectRevert(BorrowerAccount.NotThisAccountsLoan.selector);
         vm.prank(borrower);
         account.bind(address(vault), foreignId, address(collector), new address[](0));
@@ -115,7 +115,7 @@ contract BorrowerAccountTest is LoanVaultTestBase {
         account.routeToCollector(address(0));
         assertEq(address(collector).balance, 2_000 ether);
         collector.sweep(); // wraps + repays
-        assertEq(vault.getLoan(id).outstandingFlr, DEBT_FLR - 2_000 ether);
+        assertEq(vault.getLoan(id).outstanding, DEBT_FLR - 2_000 ether);
     }
 
     function test_route_whileUnboundReverts() public {
@@ -160,7 +160,7 @@ contract BorrowerAccountTest is LoanVaultTestBase {
         vm.prank(lender);
         usd.mint(lender, PRINCIPAL_USD);
         vm.prank(lender);
-        uint256 id2 = vault.offer(borrower, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+        uint256 id2 = vault.offer(borrower, false, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
         vm.prank(borrower);
         vault.accept(id2);
         address collector2 = address(vault.getLoan(id2).collector);

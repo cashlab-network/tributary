@@ -65,6 +65,21 @@ library TermsLib {
         return (outstanding * annualRateBps * epochSeconds * epochs) / (BPS * YEAR_SECONDS);
     }
 
+    /// @notice FLR wei -> USD with 6 decimals, at an FTSO feed reading
+    ///         (value, decimals). Floors — value credited never exceeds
+    ///         value delivered.
+    function flrToUsd6(uint256 flrWei, uint256 feedValue, uint8 feedDecimals) internal pure returns (uint256) {
+        return (flrWei * feedValue) / (10 ** feedDecimals * 1e12);
+    }
+
+    /// @notice USD (6 decimals) -> FLR wei at an FTSO feed reading, rounding
+    ///         UP — used when converting a debt into the FLR that settles it,
+    ///         so rounding never shorts the party being repaid.
+    function usd6ToFlrCeil(uint256 usd6, uint256 feedValue, uint8 feedDecimals) internal pure returns (uint256) {
+        uint256 num = usd6 * 10 ** feedDecimals * 1e12;
+        return (num + feedValue - 1) / feedValue;
+    }
+
     /// @notice Cap a repayment at the outstanding balance (H-06 rule: never
     ///         subtract more than the minuend; excess is change, not underflow).
     /// @return applied amount to subtract from the balance

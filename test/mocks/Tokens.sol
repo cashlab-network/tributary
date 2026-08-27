@@ -56,6 +56,28 @@ contract MockWNat is MockERC20 {
     }
 }
 
+/// Settable FTSO price feed for tests.
+contract MockFtso {
+    uint256 public value = 2_000_000; // $0.02/FLR at 8 decimals
+    int8 public decimals = 8;
+    uint64 public ts;
+    bool public tsSet;
+
+    function set(uint256 value_, int8 decimals_) external {
+        value = value_;
+        decimals = decimals_;
+    }
+
+    function setTimestamp(uint64 ts_) external {
+        ts = ts_;
+        tsSet = true;
+    }
+
+    function getFeedById(bytes21) external payable returns (uint256, int8, uint64) {
+        return (value, decimals, tsSet ? ts : uint64(block.timestamp));
+    }
+}
+
 /// Records ClaimSetupManager enrollments per calling account.
 contract MockCSM {
     mapping(address => address) public executorOf;

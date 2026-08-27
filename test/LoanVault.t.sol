@@ -9,7 +9,8 @@ import {PassLedgerOracle} from "../src/PassLedgerOracle.sol";
 import {TermsLib} from "../src/TermsLib.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IWNat} from "../src/interfaces/IWNat.sol";
-import {MockERC20, MockWNat, MockCSM, FeeOnTransferToken} from "./mocks/Tokens.sol";
+import {IFtsoV2} from "../src/interfaces/IFtsoV2.sol";
+import {MockERC20, MockWNat, MockCSM, MockFtso, FeeOnTransferToken} from "./mocks/Tokens.sol";
 
 contract LoanVaultTestBase is Test {
     LoanVault vault;
@@ -17,6 +18,7 @@ contract LoanVaultTestBase is Test {
     MockERC20 usd;
     MockWNat wnat;
     MockCSM csm;
+    MockFtso ftso;
 
     // Mainnet epoch length for unit tests; the chain value is read from
     // FlareSystemsManager at deploy time (Coston2: 21,600s).
@@ -41,8 +43,9 @@ contract LoanVaultTestBase is Test {
         usd = new MockERC20("USDT0");
         wnat = new MockWNat();
         csm = new MockCSM();
+        ftso = new MockFtso();
         oracle = new PassLedgerOracle(address(this));
-        vault = new LoanVault(IERC20(address(usd)), IWNat(address(wnat)), oracle, address(csm), keeper, EPOCH_SECONDS);
+        vault = new LoanVault(_config(0)); // band off in the base suite
 
         usd.mint(lender, PRINCIPAL_USD);
         wnat.mint(borrower, MARGIN + DEBT_FLR * 2);
@@ -52,6 +55,24 @@ contract LoanVaultTestBase is Test {
         wnat.approve(address(vault), type(uint256).max);
 
         _postAlive(); // healthy starting record: 3 passes, 20 settled epochs
+    }
+
+    function _config(uint16 bandBps) internal view returns (LoanVault.Config memory) {
+        return LoanVault.Config({
+            usd: IERC20(address(usd)),
+            wnat: IWNat(address(wnat)),
+            oracle: oracle,
+            claimSetupManager: address(csm),
+            keeperExecutor: keeper,
+            epochDurationSeconds: EPOCH_SECONDS,
+            ftso: IFtsoV2(address(ftso)),
+            flrUsdFeedId: bytes21(uint168(1)),
+            maxPriceDeviationBps: bandBps,
+            minSettledEpochs: 10,
+            deadEpochsToTrigger: 4,
+            gracePeriod: 7 days,
+            maxPriceAge: 1 hours
+        });
     }
 
     function _postAlive() internal {
@@ -64,7 +85,7 @@ contract LoanVaultTestBase is Test {
 
     function _offer() internal returns (uint256 id) {
         vm.prank(lender);
-        id = vault.offer(borrower, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+        id = vault.offer(borrower, false, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
     }
 
     function _openAndDraw() internal returns (uint256 id) {
@@ -112,7 +133,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
     function test_accept_withoutHistoryReverts() public {
         address newcomer = makeAddr("newcomer");
         vm.prank(lender);
-        uint256 id = vault.offer(newcomer, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+        uint256 id = vault.offer(newcomer, false, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
         vm.expectRevert(abi.encodeWithSelector(LoanVault.InsufficientHistory.selector, 0, 10));
         vm.prank(newcomer);
         vault.accept(id);
@@ -130,7 +151,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         // stream cap binds: 70% * 20k * 4 = 56k; ask 60k
         vm.prank(lender);
         uint256 id =
-            vault.offer(borrower, PRINCIPAL_USD, 60_000 ether, 1_000_000 ether, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+            vault.offer(borrower, false, PRINCIPAL_USD, 60_000 ether, 1_000_000 ether, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
         vm.expectRevert(abi.encodeWithSelector(LoanVault.ExceedsCreditLine.selector, 60_000 ether, 56_000 ether));
         vm.prank(borrower);
         vault.accept(id);
@@ -140,7 +161,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         // margin cap binds: 50% * 80k = 40k line; ask 45k (stream cap 56k ok)
         vm.prank(lender);
         uint256 id =
-            vault.offer(borrower, PRINCIPAL_USD, 45_000 ether, 80_000 ether, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+            vault.offer(borrower, false, PRINCIPAL_USD, 45_000 ether, 80_000 ether, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
         vm.expectRevert(abi.encodeWithSelector(LoanVault.ExceedsCreditLine.selector, 45_000 ether, 40_000 ether));
         vm.prank(borrower);
         vault.accept(id);
@@ -252,7 +273,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         uint256 id = _openAndDraw();
         vm.prank(borrower);
         vault.repay(id, 20_000 ether);
-        assertEq(vault.getLoan(id).outstandingFlr, 30_000 ether);
+        assertEq(vault.getLoan(id).outstanding, 30_000 ether);
 
         vm.prank(borrower);
         vault.repay(id, 30_000 ether);
@@ -265,7 +286,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         uint256 id = _openAndDraw();
         vm.prank(borrower);
         vault.repay(id, DEBT_FLR + 5_000 ether);
-        assertEq(vault.getLoan(id).outstandingFlr, 0);
+        assertEq(vault.getLoan(id).outstanding, 0);
         assertEq(vault.owed(lender, address(wnat)), DEBT_FLR);
         assertEq(vault.owed(borrower, address(wnat)), 5_000 ether + MARGIN);
     }
@@ -288,7 +309,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         _postAlive(); // one epoch passes, 3 passes held -> benchmark + 1pt = 600bps
         vault.accrue(id);
         uint256 expected = DEBT_FLR + TermsLib.epochInterest(DEBT_FLR, 600, 1, EPOCH_SECONDS);
-        assertEq(vault.getLoan(id).outstandingFlr, expected);
+        assertEq(vault.getLoan(id).outstanding, expected);
         assertGt(expected, DEBT_FLR); // interest is real
     }
 
@@ -297,16 +318,16 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         oracle.post(borrower, ++epoch, TRAILING, 0, 20, true); // record broke: 0 passes
         vault.accrue(id);
         // 0 passes -> benchmark + 4pts = 900bps
-        assertEq(vault.getLoan(id).outstandingFlr, DEBT_FLR + TermsLib.epochInterest(DEBT_FLR, 900, 1, EPOCH_SECONDS));
+        assertEq(vault.getLoan(id).outstanding, DEBT_FLR + TermsLib.epochInterest(DEBT_FLR, 900, 1, EPOCH_SECONDS));
     }
 
     function test_interest_accrualIsIdempotentPerEpoch() public {
         uint256 id = _openAndDraw();
         _postAlive();
         vault.accrue(id);
-        uint256 after1 = vault.getLoan(id).outstandingFlr;
+        uint256 after1 = vault.getLoan(id).outstanding;
         vault.accrue(id); // same epoch again: no double-charge
-        assertEq(vault.getLoan(id).outstandingFlr, after1);
+        assertEq(vault.getLoan(id).outstanding, after1);
     }
 
     // --- default machinery: state trigger, cure, settlement ---
@@ -369,7 +390,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         uint256 id = _openAndDraw();
         for (uint256 i; i < 4; i++) _postDead();
         vault.trip(id);
-        uint256 outstanding = vault.getLoan(id).outstandingFlr; // accrued through trip
+        uint256 outstanding = vault.getLoan(id).outstanding; // accrued through trip
         vm.warp(block.timestamp + 7 days);
         vault.settle(id);
 
@@ -383,7 +404,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         // consented default fee larger than the margin cushion forces shortfall
         vm.prank(lender);
         uint256 id =
-            vault.offer(borrower, PRINCIPAL_USD, DEBT_FLR, MARGIN, 60_000 ether, BENCHMARK_BPS, TERM_EPOCHS);
+            vault.offer(borrower, false, PRINCIPAL_USD, DEBT_FLR, MARGIN, 60_000 ether, BENCHMARK_BPS, TERM_EPOCHS);
         vm.prank(borrower);
         vault.accept(id);
         vm.prank(lender);
@@ -406,12 +427,14 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
 
     function test_feeOnTransferPrincipalIsRejected() public {
         FeeOnTransferToken feeToken = new FeeOnTransferToken();
-        LoanVault feeVault = new LoanVault(IERC20(address(feeToken)), IWNat(address(wnat)), oracle, address(csm), keeper, EPOCH_SECONDS);
+        LoanVault.Config memory cfg = _config(0);
+        cfg.usd = IERC20(address(feeToken));
+        LoanVault feeVault = new LoanVault(cfg);
         feeToken.mint(lender, PRINCIPAL_USD);
         vm.startPrank(lender);
         feeToken.approve(address(feeVault), type(uint256).max);
         uint256 id =
-            feeVault.offer(borrower, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+            feeVault.offer(borrower, false, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
         vm.stopPrank();
         vm.prank(borrower);
         feeVault.accept(id);
@@ -454,7 +477,7 @@ contract RewardCollectorTest is LoanVaultTestBase {
         vm.deal(address(collector), 3_000 ether);
         vm.prank(stranger); // the keeper is anyone
         collector.sweep();
-        assertEq(vault.getLoan(id).outstandingFlr, DEBT_FLR - 3_000 ether);
+        assertEq(vault.getLoan(id).outstanding, DEBT_FLR - 3_000 ether);
         assertEq(vault.owed(lender, address(wnat)), 3_000 ether);
         assertEq(address(collector).balance, 0);
         assertEq(wnat.balanceOf(address(collector)), 0);
