@@ -42,3 +42,19 @@ security rulebook every contract must satisfy.
 ## Toolchain
 
 Foundry (`forge build`, `forge test`). Solidity, fixed pragma.
+
+## The app (read-only testnet explorer)
+
+`app/` is a zero-backend dApp: live Coston2 reads over the public RPC
+(vault policy, every loan, the pass ledger) plus a loan designer that runs
+the exact TermsLib math in the browser against the live FtsoV2 price. Serve
+it statically:
+
+```
+python3 -m http.server 8777 --directory app
+```
+
+then open http://localhost:8777. Read-only by design — transaction signing
+(wallet connect) is the next milestone; no keys ever touch the page.
+`app/ethers.umd.min.js` is vendored (gitignored); re-fetch from
+cdn.jsdelivr.net/npm/ethers@6 if missing.
