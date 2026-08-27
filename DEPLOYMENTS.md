@@ -56,3 +56,29 @@ routeToCollector callable by anyone.
 
 FLR/USD feed id (verified live): `0x01464c522f55534400000000000000000000000000`.
 
+## Coston2 — 2026-08-27 — v3 (two flavors, both fixes, real epoch ids), LIVE
+
+The current stack. Carries both same-day fixes (chain-read epoch duration
+21,600s; escrow claim self-enrollment), per-chain policy config, the ±25%
+price band, and the **first fixed-dollar loan**: $0.05 borrowed in real
+USDT0, repaid in FLR valued by the REAL FtsoV2 — lender received
+7.462608599611645849 WFLR = exactly $0.05 at the live price; borrower kept
+the borrowed dollars and all upside; conservation wei-exact (7.4626 applied
++ 0.5374 change = 8 FLR delivered). Ledger posted under the REAL reward
+epoch id (5992). Loan 1: REPAID.
+
+| Contract | Address |
+|---|---|
+| LoanVault v3 (two-flavor) | `0x8Ad5f9654de710426985Ddc0696Fa2663D3c2Fe4` |
+| PassLedgerOracle v3 | `0x0a124dfA88Bd463354B4C4D2E50C5F91FdAA165F` |
+| RewardCollector (loan 1) | `0x25069B8A2C525457d6512870790a11f6eDEa720d` |
+
+Ops note: Coston2 gas ~650–1200 gwei — a full scripted run costs whole FLR,
+and `--gas-estimate-multiplier 300` can price single txs over 2 FLR. Keep
+the deployer topped up; finish interrupted runs with plain `cast send`
+(explicit `--gas-price` + `--priority-gas-price`).
+
+Real delegation live since 2026-08-27: borrower EOA WFLR → provider
+delegation address `0x07f5053C867AE107Db15A38Aa4421b2c24aC4e51`; an epoch
+watcher wakes the session at epoch 5994 for the first REAL executor claim.
+
