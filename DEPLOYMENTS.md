@@ -35,4 +35,24 @@ Final verified numbers (wei-exact conservation): lender received
 21.987326569795967120 WFLR (20 margin returned + 1.98732... change from the
 final sweep's excess); vault + escrow residuals 0.
 
-Next deploy should use real faucet USDT0 (`0xC1a5...71F`) instead of the mock.
+## Coston2 — 2026-08-27 — v2 demo (claim-bound account, real USDT0), LIVE
+
+Loan 1 on vault2 is deliberately left OPEN as the standing exhibit: Drawn,
+partially self-repaid (outstanding ~7.0058 FLR of 10 + interest), borrower is
+a claim-BOUND BorrowerAccount holding the 5 real USDT0 it borrowed. The
+account is enrolled on Flare's REAL ClaimSetupManager (executor = keeper,
+sole allowed recipient = the loan's collector). Fence verified on-chain by
+eth_call: an owner drain attempt reverts BindingForbidsThis (0x13bb4167);
+routeToCollector callable by anyone.
+
+| Contract | Address |
+|---|---|
+| BorrowerAccount (bound) | `0x84e102D275E5b0F95EA8BdCF5228f42292847FF8` |
+| LoanVault v2 (real USDT0) | `0x3C0Ce173dd01b802973f52260Cf2eF63397E8eBb` |
+| RewardCollector (loan 1) | `0xbA1037c521859Afab57dE0114ff7E27F8fFf2bd3` |
+| PassLedgerOracle | reused: `0xf941978Af75d17B7c5d4574CC04a4e07CE92D0B0` |
+| ClaimSetupManager (Flare's) | `0x5Ddb590530EF66775E6225671eaBD94959e9AE0e` |
+| FtsoV2 (Flare's; FLR/USD read verified free/fresh) | `0xC4e9c78EA53db782E28f28Fdf80BaF59336B304d` |
+
+FLR/USD feed id (verified live): `0x01464c522f55534400000000000000000000000000`.
+
