@@ -20,7 +20,7 @@ contract Deploy is Script {
         vm.startBroadcast();
         usd = new MockERC20("Testnet USD (mock)");
         oracle = new PassLedgerOracle(msg.sender);
-        vault = new LoanVault(IERC20(address(usd)), IWNat(wnat), oracle);
+        vault = new LoanVault(IERC20(address(usd)), IWNat(wnat), oracle, 0x5Ddb590530EF66775E6225671eaBD94959e9AE0e, msg.sender, 21_600);
         vm.stopBroadcast();
         console2.log("WNat (chain):", wnat);
         console2.log("Mock USD:   ", address(usd));

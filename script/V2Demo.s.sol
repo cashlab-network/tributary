@@ -53,7 +53,7 @@ contract V2Demo is Script {
 
         // -- deployer: vault2 on REAL USDT0 + ledger row for the account
         vm.startBroadcast(deployerPk);
-        LoanVault vault2 = new LoanVault(IERC20(USDT0), wnat, oracle);
+        LoanVault vault2 = new LoanVault(IERC20(USDT0), wnat, oracle, CSM, deployer, 21_600);
         oracle.post(address(account), 100, TRAILING, 3, 20, true);
         IERC20(USDT0).approve(address(vault2), type(uint256).max);
         uint256 id = vault2.offer(

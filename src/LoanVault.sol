@@ -103,6 +103,15 @@ contract LoanVault {
     IERC20 public immutable usd; // the loan stablecoin (USDT0)
     IWNat public immutable wnat; // wrapped FLR: margin + repayment asset
     PassLedgerOracle public immutable oracle;
+    /// Reward epoch length in seconds — a CHAIN property read from
+    /// FlareSystemsManager at deploy time (302,400 mainnet / 21,600 Coston2),
+    /// never assumed. Drives interest accrual.
+    uint256 public immutable epochDurationSeconds;
+    /// Flare's ClaimSetupManager (zero in pure unit tests): every escrow
+    /// enrolls on it so delegation rewards stay claimable.
+    address public immutable claimSetupManager;
+    /// The executor escrows authorize to run their claims (the keeper).
+    address public immutable keeperExecutor;
 
     uint256 public nextId = 1; // 0 is never a valid id
     mapping(uint256 => Loan) internal loans;
@@ -126,13 +135,24 @@ contract LoanVault {
         _;
     }
 
-    constructor(IERC20 usd_, IWNat wnat_, PassLedgerOracle oracle_) {
+    constructor(
+        IERC20 usd_,
+        IWNat wnat_,
+        PassLedgerOracle oracle_,
+        address claimSetupManager_,
+        address keeperExecutor_,
+        uint256 epochDurationSeconds_
+    ) {
         if (address(usd_) == address(0) || address(wnat_) == address(0) || address(oracle_) == address(0)) {
             revert ZeroAddress();
         }
+        if (epochDurationSeconds_ == 0) revert ZeroAmount();
         usd = usd_;
         wnat = wnat_;
         oracle = oracle_;
+        claimSetupManager = claimSetupManager_;
+        keeperExecutor = keeperExecutor_;
+        epochDurationSeconds = epochDurationSeconds_;
     }
 
     // ---------------------------------------------------------------- consent
@@ -228,7 +248,7 @@ contract LoanVault {
         Loan storage loan = loans[id];
         if (msg.sender != loan.borrower) revert NotParty(id, msg.sender);
         if (address(loan.escrow) != address(0)) revert AlreadyMargined(id);
-        MarginEscrow escrow = new MarginEscrow(wnat, loan.borrower);
+        MarginEscrow escrow = new MarginEscrow(wnat, loan.borrower, claimSetupManager, keeperExecutor);
         loan.escrow = escrow;
         _pullExact(wnat, msg.sender, address(escrow), loan.requiredMargin);
         emit MarginPosted(id, address(escrow));
@@ -262,7 +282,7 @@ contract LoanVault {
         if (rec.epochId <= loan.lastAccrualEpoch) return;
         uint256 epochs = rec.epochId - loan.lastAccrualEpoch;
         uint256 rate = TermsLib.rateBps(loan.benchmarkBps, rec.passCount);
-        uint256 interest = TermsLib.epochInterest(loan.outstandingFlr, rate, epochs);
+        uint256 interest = TermsLib.epochInterest(loan.outstandingFlr, rate, epochs, epochDurationSeconds);
         loan.outstandingFlr += interest;
         loan.lastAccrualEpoch = rec.epochId;
         emit InterestAccrued(id, interest, rec.epochId);

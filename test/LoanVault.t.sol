@@ -9,17 +9,23 @@ import {PassLedgerOracle} from "../src/PassLedgerOracle.sol";
 import {TermsLib} from "../src/TermsLib.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IWNat} from "../src/interfaces/IWNat.sol";
-import {MockERC20, MockWNat, FeeOnTransferToken} from "./mocks/Tokens.sol";
+import {MockERC20, MockWNat, MockCSM, FeeOnTransferToken} from "./mocks/Tokens.sol";
 
 contract LoanVaultTestBase is Test {
     LoanVault vault;
     PassLedgerOracle oracle;
     MockERC20 usd;
     MockWNat wnat;
+    MockCSM csm;
+
+    // Mainnet epoch length for unit tests; the chain value is read from
+    // FlareSystemsManager at deploy time (Coston2: 21,600s).
+    uint256 constant EPOCH_SECONDS = 302_400;
 
     address lender = makeAddr("lender");
     address borrower = makeAddr("borrower");
     address stranger = makeAddr("stranger");
+    address keeper = makeAddr("keeperExecutor");
 
     uint256 constant PRINCIPAL_USD = 1_000e6; // 1,000 USDT0
     uint256 constant DEBT_FLR = 50_000 ether; // locked forward price
@@ -34,8 +40,9 @@ contract LoanVaultTestBase is Test {
     function setUp() public virtual {
         usd = new MockERC20("USDT0");
         wnat = new MockWNat();
+        csm = new MockCSM();
         oracle = new PassLedgerOracle(address(this));
-        vault = new LoanVault(IERC20(address(usd)), IWNat(address(wnat)), oracle);
+        vault = new LoanVault(IERC20(address(usd)), IWNat(address(wnat)), oracle, address(csm), keeper, EPOCH_SECONDS);
 
         usd.mint(lender, PRINCIPAL_USD);
         wnat.mint(borrower, MARGIN + DEBT_FLR * 2);
@@ -197,6 +204,20 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         assertEq(usd.balanceOf(address(vault)), 0);
     }
 
+    function test_postMargin_escrowEnrollsClaimSetup() public {
+        // delegation rewards accrue to the ESCROW (the WNat holder); without
+        // claim setup they would expire unclaimable. Escrow must self-enroll:
+        // keeper executes, borrower is the sole recipient.
+        uint256 id = _offer();
+        vm.startPrank(borrower);
+        vault.accept(id);
+        vault.postMargin(id);
+        vm.stopPrank();
+        address escrow = address(vault.getLoan(id).escrow);
+        assertEq(csm.executorOf(escrow), keeper);
+        assertEq(csm.recipientOf(escrow), borrower);
+    }
+
     function test_postMargin_escrowDelegatesBackToBorrower() public {
         uint256 id = _offer();
         vm.startPrank(borrower);
@@ -266,7 +287,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         uint256 id = _openAndDraw();
         _postAlive(); // one epoch passes, 3 passes held -> benchmark + 1pt = 600bps
         vault.accrue(id);
-        uint256 expected = DEBT_FLR + TermsLib.epochInterest(DEBT_FLR, 600, 1);
+        uint256 expected = DEBT_FLR + TermsLib.epochInterest(DEBT_FLR, 600, 1, EPOCH_SECONDS);
         assertEq(vault.getLoan(id).outstandingFlr, expected);
         assertGt(expected, DEBT_FLR); // interest is real
     }
@@ -276,7 +297,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         oracle.post(borrower, ++epoch, TRAILING, 0, 20, true); // record broke: 0 passes
         vault.accrue(id);
         // 0 passes -> benchmark + 4pts = 900bps
-        assertEq(vault.getLoan(id).outstandingFlr, DEBT_FLR + TermsLib.epochInterest(DEBT_FLR, 900, 1));
+        assertEq(vault.getLoan(id).outstandingFlr, DEBT_FLR + TermsLib.epochInterest(DEBT_FLR, 900, 1, EPOCH_SECONDS));
     }
 
     function test_interest_accrualIsIdempotentPerEpoch() public {
@@ -385,7 +406,7 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
 
     function test_feeOnTransferPrincipalIsRejected() public {
         FeeOnTransferToken feeToken = new FeeOnTransferToken();
-        LoanVault feeVault = new LoanVault(IERC20(address(feeToken)), IWNat(address(wnat)), oracle);
+        LoanVault feeVault = new LoanVault(IERC20(address(feeToken)), IWNat(address(wnat)), oracle, address(csm), keeper, EPOCH_SECONDS);
         feeToken.mint(lender, PRINCIPAL_USD);
         vm.startPrank(lender);
         feeToken.approve(address(feeVault), type(uint256).max);

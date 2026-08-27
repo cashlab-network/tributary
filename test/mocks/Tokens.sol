@@ -56,6 +56,20 @@ contract MockWNat is MockERC20 {
     }
 }
 
+/// Records ClaimSetupManager enrollments per calling account.
+contract MockCSM {
+    mapping(address => address) public executorOf;
+    mapping(address => address) public recipientOf;
+
+    function setClaimExecutors(address[] calldata executors) external payable {
+        executorOf[msg.sender] = executors.length > 0 ? executors[0] : address(0);
+    }
+
+    function setAllowedClaimRecipients(address[] calldata recipients) external {
+        recipientOf[msg.sender] = recipients.length > 0 ? recipients[0] : address(0);
+    }
+}
+
 /// Fee-on-transfer token: delivers 1% less than sent. Must be REJECTED by the
 /// vault's exact-delta accounting (M-09).
 contract FeeOnTransferToken is MockERC20 {

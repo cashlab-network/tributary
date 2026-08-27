@@ -42,7 +42,7 @@ contract TestnetDemo is Script {
         vm.startBroadcast(deployerPk);
         MockERC20 usd = new MockERC20("Testnet USD (mock)");
         PassLedgerOracle oracle = new PassLedgerOracle(deployer);
-        LoanVault vault = new LoanVault(IERC20(address(usd)), wnat, oracle);
+        LoanVault vault = new LoanVault(IERC20(address(usd)), wnat, oracle, 0x5Ddb590530EF66775E6225671eaBD94959e9AE0e, deployer, 21_600);
         usd.mint(deployer, PRINCIPAL_USD);
         oracle.post(borrower, ++epoch, TRAILING, 3, 20, true);
         usd.approve(address(vault), type(uint256).max);

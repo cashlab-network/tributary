@@ -47,7 +47,7 @@ contract Demo is Script {
         vm.startBroadcast(KEEPER_PK);
         MockERC20 usd = new MockERC20("Testnet USD (mock)");
         PassLedgerOracle oracle = new PassLedgerOracle(keeper);
-        LoanVault vault = new LoanVault(IERC20(address(usd)), wnat, oracle);
+        LoanVault vault = new LoanVault(IERC20(address(usd)), wnat, oracle, 0x5Ddb590530EF66775E6225671eaBD94959e9AE0e, keeper, 21_600);
         usd.mint(lender, PRINCIPAL_USD);
         oracle.post(borrower, ++epoch, TRAILING, 3, 20, true); // 3/3 passes, 20 settled epochs
         vm.stopBroadcast();

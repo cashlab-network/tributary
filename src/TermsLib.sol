@@ -50,15 +50,19 @@ library TermsLib {
         return benchmarkBps + spread;
     }
 
-    /// @notice Linear interest for whole reward epochs (3.5 days each), at an
-    ///         ANNUALIZED rate in bps. interest = outstanding * rate * (3.5d/365d) * epochs.
-    function epochInterest(uint256 outstanding, uint256 annualRateBps, uint256 epochs)
+    uint256 internal constant YEAR_SECONDS = 365 days;
+
+    /// @notice Linear interest for whole reward epochs at an ANNUALIZED rate
+    ///         in bps. Epoch length is a parameter because it is a CHAIN
+    ///         property read from FlareSystemsManager, never assumed:
+    ///         302,400s (3.5 days) on Flare mainnet, 21,600s (6 hours) on
+    ///         Coston2 — hardcoding 3.5 days overcharged testnet 14x.
+    function epochInterest(uint256 outstanding, uint256 annualRateBps, uint256 epochs, uint256 epochSeconds)
         internal
         pure
         returns (uint256)
     {
-        // 3.5/365 == 35/3650; combined divisor 10_000 * 3650 / gcd handled inline
-        return (outstanding * annualRateBps * 35 * epochs) / (BPS * 3650);
+        return (outstanding * annualRateBps * epochSeconds * epochs) / (BPS * YEAR_SECONDS);
     }
 
     /// @notice Cap a repayment at the outstanding balance (H-06 rule: never
