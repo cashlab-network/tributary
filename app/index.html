@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tributary — Coston2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#0C1213; --panel:#131C1D; --panel2:#0F1718; --ink:#E6EEEC; --muted:#8CA09D;
+  --faint:#5C716E; --accent:#33C4AC; --accent-dim:#1C7A6C; --line:#22302F;
+  --good:#33C4AC; --good-bg:#0F241F; --warn:#E0A64E; --warn-bg:#241C0F;
+  --bad:#E5705B; --bad-bg:#251310; --info:#5AA9E6; --info-bg:#0F1D28;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"Public Sans",system-ui,sans-serif;font-size:15px;line-height:1.55;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:70rem;margin:0 auto;padding:1.5rem 1.25rem 4rem}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+
+/* top bar */
+.topbar{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem 1.25rem;
+  padding:.85rem 0 1.25rem;border-bottom:1px solid var(--line);margin-bottom:1.5rem}
+.brand{display:flex;align-items:baseline;gap:.55rem;margin-right:auto}
+.brand .mark{font-family:Fraunces,Georgia,serif;font-weight:650;font-size:1.5rem;letter-spacing:-.01em}
+.brand .sub{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--faint)}
+.chip{display:inline-flex;align-items:center;gap:.45rem;font-family:"IBM Plex Mono",monospace;
+  font-size:.75rem;background:var(--panel);border:1px solid var(--line);border-radius:999px;
+  padding:.3rem .7rem;color:var(--muted)}
+.chip b{color:var(--ink);font-weight:600}
+.dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--faint);flex:none}
+.dot.live{background:var(--good);box-shadow:0 0 0 3px var(--good-bg)}
+.dot.err{background:var(--bad);box-shadow:0 0 0 3px var(--bad-bg)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.dot.loading{background:var(--warn);animation:pulse 1s ease-in-out infinite}
+
+h2{font-family:Fraunces,Georgia,serif;font-weight:650;font-size:1.3rem;margin:2.4rem 0 .3rem}
+.section-sub{color:var(--muted);font-size:.9rem;margin:0 0 1.1rem;max-width:60ch}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--accent-dim);margin:0 0 .3rem}
+
+/* stat grid */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.7rem}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.8rem .9rem}
+.stat .k{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stat .v{font-family:"IBM Plex Mono",monospace;font-size:1.15rem;font-weight:500;margin-top:.2rem;
+  word-break:break-word}
+.stat .v small{font-size:.72rem;color:var(--faint);font-weight:400}
+
+/* loan cards */
+.loans{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));gap:.9rem}
+.loan{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem}
+.loan-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem}
+.loan-id{font-family:Fraunces,Georgia,serif;font-weight:650;font-size:1.05rem}
+.pill{font-family:"IBM Plex Mono",monospace;font-size:.68rem;font-weight:600;letter-spacing:.04em;
+  padding:.2rem .55rem;border-radius:6px;text-transform:uppercase}
+.pill.drawn{color:var(--info);background:var(--info-bg)}
+.pill.repaid{color:var(--good);background:var(--good-bg)}
+.pill.grace{color:var(--warn);background:var(--warn-bg)}
+.pill.settled,.pill.closed{color:var(--muted);background:var(--panel2)}
+.pill.open,.pill.offered{color:var(--accent);background:var(--good-bg)}
+.flavor{font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--faint);margin-bottom:.6rem}
+.rows{display:grid;gap:.35rem;font-size:.85rem}
+.row{display:flex;justify-content:space-between;gap:1rem}
+.row .l{color:var(--muted)}
+.row .r{font-family:"IBM Plex Mono",monospace;text-align:right}
+.bar{height:5px;background:var(--panel2);border-radius:99px;overflow:hidden;margin:.7rem 0 .1rem}
+.bar > i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.addr-row{margin-top:.7rem;padding-top:.6rem;border-top:1px solid var(--line);
+  display:flex;gap:.5rem;flex-wrap:wrap;font-size:.72rem}
+.addr-row a{font-family:"IBM Plex Mono",monospace;color:var(--muted)}
+
+/* forms */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1.2rem 1.3rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+label{display:block;font-size:.78rem;color:var(--muted);margin:.7rem 0 .25rem;text-transform:uppercase;letter-spacing:.04em}
+input,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);
+  border-radius:8px;padding:.5rem .65rem;font-family:"IBM Plex Mono",monospace;font-size:.9rem}
+input:focus,select:focus{outline:2px solid var(--accent-dim);outline-offset:0;border-color:var(--accent-dim)}
+button{background:var(--accent);color:#04100D;border:none;border-radius:8px;padding:.55rem 1.1rem;
+  font-family:"Public Sans",sans-serif;font-weight:700;font-size:.85rem;cursor:pointer}
+button:hover{filter:brightness(1.08)}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent-dim)}
+.out{display:grid;gap:.5rem;margin-top:.3rem}
+.out .big{font-family:"IBM Plex Mono",monospace;font-size:1.6rem;font-weight:600;color:var(--accent)}
+.out .lab{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+table{border-collapse:collapse;width:100%;font-size:.82rem;margin-top:.6rem}
+th{font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);text-align:right;padding:.35rem .5rem;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+td{padding:.35rem .5rem;border-bottom:1px solid var(--line);font-family:"IBM Plex Mono",monospace;
+  font-variant-numeric:tabular-nums;text-align:right}
+.hint{font-size:.76rem;color:var(--faint);margin-top:.5rem}
+.err-box{background:var(--bad-bg);border:1px solid var(--bad);color:var(--ink);border-radius:8px;
+  padding:.7rem .9rem;font-size:.85rem;margin:.8rem 0}
+.muted{color:var(--muted)}
+.spinner{color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:.85rem;padding:1rem 0}
+.foot{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);color:var(--faint);font-size:.78rem}
+.toolbar{display:flex;gap:.6rem;align-items:center;margin:.5rem 0 0}
+.readonly-note{display:inline-flex;align-items:center;gap:.4rem;font-size:.74rem;color:var(--warn);
+  font-family:"IBM Plex Mono",monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">
+      <span class="mark">Tributary</span>
+      <span class="sub">Coston2 · read-only</span>
+    </div>
+    <span class="chip"><span id="netdot" class="dot loading"></span> <span id="netlabel">connecting…</span></span>
+    <span class="chip">epoch <b id="epoch">—</b></span>
+    <span class="chip">FLR/USD <b id="price">—</b></span>
+    <span class="chip">block <b id="block">—</b></span>
+  </div>
+
+  <div id="errzone"></div>
+
+  <p class="eyebrow">Live protocol</p>
+  <h2>The v3 vault, on the real testnet</h2>
+  <p class="section-sub">Everything below is read straight from Coston2 over the public RPC —
+  no cache, no backend. Policy values are the deployment's own on-chain configuration.</p>
+  <div class="stats" id="protocol-stats">
+    <div class="stat"><div class="k">loading</div><div class="v">…</div></div>
+  </div>
+  <div class="toolbar"><button class="ghost" id="refresh">↻ Refresh</button>
+    <span class="readonly-note">● reads only — signing a loan needs a wallet (next milestone)</span></div>
+
+  <p class="eyebrow" style="margin-top:2.6rem">On-chain loans</p>
+  <h2>Every loan this vault has opened</h2>
+  <p class="section-sub">Each card is one loan id, live. The progress bar is how much of the debt
+  has been repaid. Addresses link to the Coston2 explorer.</p>
+  <div class="loans" id="loans"><div class="spinner">loading loans…</div></div>
+
+  <div class="grid2" style="margin-top:2.6rem">
+    <div>
+      <p class="eyebrow">Underwriting data</p>
+      <h2>Pass-ledger lookup</h2>
+      <p class="section-sub">The on-chain performance record a borrower is underwritten against.
+      Try a live loan's borrower, or any address.</p>
+      <div class="panel">
+        <label for="lookup">Borrower address</label>
+        <input id="lookup" placeholder="0x…" spellcheck="false">
+        <div class="toolbar" style="margin-top:.7rem"><button id="lookup-btn">Look up</button></div>
+        <div id="ledger-out" style="margin-top:1rem"></div>
+      </div>
+    </div>
+    <div>
+      <p class="eyebrow">Try it</p>
+      <h2>Design a loan</h2>
+      <p class="section-sub">The exact on-chain math (TermsLib), run in your browser against the
+      live FLR/USD price. Nothing is sent anywhere.</p>
+      <div class="panel">
+        <div class="grid2" style="gap:.6rem">
+          <div><label>Flavor</label>
+            <select id="c-flavor"><option value="flr">Fixed-FLR</option><option value="usd">Fixed-dollar</option></select></div>
+          <div><label>Passes held (0–3)</label>
+            <input id="c-passes" type="number" min="0" max="3" value="3"></div>
+          <div><label>Trailing reward / epoch (FLR)</label>
+            <input id="c-trailing" type="number" value="400"></div>
+          <div><label>Term (epochs)</label>
+            <input id="c-term" type="number" value="8"></div>
+          <div><label>Margin posted (FLR)</label>
+            <input id="c-margin" type="number" value="2000"></div>
+          <div><label>Benchmark rate (bps)</label>
+            <input id="c-benchmark" type="number" value="500"></div>
+        </div>
+        <div class="toolbar" style="margin-top:.9rem"><button id="calc-btn">Calculate</button></div>
+        <div id="calc-out" class="out" style="margin-top:1rem"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    Tributary is a non-custodial validator-credit marketplace. This page is a read-only explorer
+    for the Coston2 testnet deployment — throwaway keys, faucet tokens, no real value.
+    Vault <span class="mono" id="foot-vault">…</span>.
+  </div>
+</div>
+<script src="./ethers.umd.min.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
