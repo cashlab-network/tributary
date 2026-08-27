@@ -19,10 +19,25 @@ anyone against published data — and become trust-minimized later.
 
 ```
 LoanVault        — loan lifecycle + accounting (the core)
-MarginEscrow     — holds WFLR margin; delegates vote power back to borrower
+MarginEscrow     — ONE PER LOAN, deployed by the vault at margin posting;
+                   holds that loan's WFLR and delegates 100% of its own
+                   balance back to the borrower (WNat delegation is
+                   account-wide, so a shared escrow cannot delegate per-loan —
+                   this is why escrows are per-loan instances)
 PassLedgerOracle — posts (epoch, trailingRewards, passCount, aliveBit) per borrower
 RewardCollector  — receives routed reward claims; keeper-triggered sweep into LoanVault
 ```
+
+Origination pricing note: in the fixed-FLR flavor the offer states BOTH
+`principalUsd` (USDT0 advanced) and `debtFlr` (FLR owed) — the consented pair
+IS the locked forward price, so origination needs no FTSO read. The FTSO
+enters only for the fixed-dollar flavor and for settlement valuation.
+
+Interest accrual lands with the PassLedgerOracle step (rate reprices per
+posted epoch); until then `outstanding = debtFlr` and tests cover principal
+flows only. On-chain dual-cap enforcement against posted trailing rewards
+also lands with the oracle step; before it, `requiredMargin` and terms are
+consented off-chain by both parties.
 
 Asset allowlist v1: **WFLR only** (margin) + **WFLR repayment** (fixed-FLR
 flavor: FLR in, FLR owed — no swaps, no oracle needed on the repay path).
