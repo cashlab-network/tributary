@@ -49,6 +49,11 @@ contract MockWNat is MockERC20 {
         delegatee[msg.sender] = to;
         delegatedBips[msg.sender] = bips;
     }
+
+    function deposit() external payable {
+        balanceOf[msg.sender] += msg.value;
+        totalSupply += msg.value;
+    }
 }
 
 /// Fee-on-transfer token: delivers 1% less than sent. Must be REJECTED by the

@@ -50,6 +50,17 @@ library TermsLib {
         return benchmarkBps + spread;
     }
 
+    /// @notice Linear interest for whole reward epochs (3.5 days each), at an
+    ///         ANNUALIZED rate in bps. interest = outstanding * rate * (3.5d/365d) * epochs.
+    function epochInterest(uint256 outstanding, uint256 annualRateBps, uint256 epochs)
+        internal
+        pure
+        returns (uint256)
+    {
+        // 3.5/365 == 35/3650; combined divisor 10_000 * 3650 / gcd handled inline
+        return (outstanding * annualRateBps * 35 * epochs) / (BPS * 3650);
+    }
+
     /// @notice Cap a repayment at the outstanding balance (H-06 rule: never
     ///         subtract more than the minuend; excess is change, not underflow).
     /// @return applied amount to subtract from the balance

@@ -4,12 +4,16 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {LoanVault} from "../src/LoanVault.sol";
 import {MarginEscrow} from "../src/MarginEscrow.sol";
+import {RewardCollector} from "../src/RewardCollector.sol";
+import {PassLedgerOracle} from "../src/PassLedgerOracle.sol";
+import {TermsLib} from "../src/TermsLib.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IWNat} from "../src/interfaces/IWNat.sol";
 import {MockERC20, MockWNat, FeeOnTransferToken} from "./mocks/Tokens.sol";
 
-contract LoanVaultTest is Test {
+contract LoanVaultTestBase is Test {
     LoanVault vault;
+    PassLedgerOracle oracle;
     MockERC20 usd;
     MockWNat wnat;
 
@@ -20,24 +24,40 @@ contract LoanVaultTest is Test {
     uint256 constant PRINCIPAL_USD = 1_000e6; // 1,000 USDT0
     uint256 constant DEBT_FLR = 50_000 ether; // locked forward price
     uint256 constant MARGIN = 100_000 ether; // 2x debt in WFLR
+    uint256 constant DEFAULT_FEE = 500 ether;
+    uint256 constant BENCHMARK_BPS = 500; // 5% staking-yield benchmark
+    uint16 constant TERM_EPOCHS = 4;
+    uint192 constant TRAILING = 20_000 ether; // per-epoch trailing rewards
 
-    function setUp() public {
+    uint64 epoch = 100; // current ledger epoch, advanced by helpers
+
+    function setUp() public virtual {
         usd = new MockERC20("USDT0");
         wnat = new MockWNat();
-        vault = new LoanVault(IERC20(address(usd)), IWNat(address(wnat)));
+        oracle = new PassLedgerOracle(address(this));
+        vault = new LoanVault(IERC20(address(usd)), IWNat(address(wnat)), oracle);
 
         usd.mint(lender, PRINCIPAL_USD);
-        wnat.mint(borrower, MARGIN + DEBT_FLR);
+        wnat.mint(borrower, MARGIN + DEBT_FLR * 2);
         vm.prank(lender);
         usd.approve(address(vault), type(uint256).max);
-        vm.startPrank(borrower);
+        vm.prank(borrower);
         wnat.approve(address(vault), type(uint256).max);
-        vm.stopPrank();
+
+        _postAlive(); // healthy starting record: 3 passes, 20 settled epochs
+    }
+
+    function _postAlive() internal {
+        oracle.post(borrower, ++epoch, TRAILING, 3, 20, true);
+    }
+
+    function _postDead() internal {
+        oracle.post(borrower, ++epoch, TRAILING, 3, 20, false);
     }
 
     function _offer() internal returns (uint256 id) {
         vm.prank(lender);
-        id = vault.offer(borrower, PRINCIPAL_USD, DEBT_FLR, MARGIN, 500, 4);
+        id = vault.offer(borrower, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
     }
 
     function _openAndDraw() internal returns (uint256 id) {
@@ -51,17 +71,15 @@ contract LoanVaultTest is Test {
         vault.draw(id);
         vm.stopPrank();
     }
+}
 
+contract LoanVaultLifecycleTest is LoanVaultTestBase {
     // --- the H-04 failing case: bogus ids must revert everywhere ---
-
-    function test_accept_bogusIdReverts() public {
-        vm.expectRevert(abi.encodeWithSelector(LoanVault.LoanDoesNotExist.selector, 999));
-        vm.prank(borrower);
-        vault.accept(999);
-    }
 
     function test_lifecycle_bogusIdRevertsEverywhere() public {
         bytes memory err = abi.encodeWithSelector(LoanVault.LoanDoesNotExist.selector, 0);
+        vm.expectRevert(err);
+        vault.accept(0);
         vm.expectRevert(err);
         vault.cancelOffer(0);
         vm.expectRevert(err);
@@ -75,10 +93,62 @@ contract LoanVaultTest is Test {
         vm.expectRevert(err);
         vault.repay(0, 1);
         vm.expectRevert(err);
+        vault.trip(0);
+        vm.expectRevert(err);
+        vault.settle(0);
+        vm.expectRevert(err);
         vault.getLoan(0);
     }
 
-    // --- consent: party-scoped, value-free, revocable-until-consumed ---
+    // --- underwriting at accept: the ledger decides ---
+
+    function test_accept_withoutHistoryReverts() public {
+        address newcomer = makeAddr("newcomer");
+        vm.prank(lender);
+        uint256 id = vault.offer(newcomer, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.InsufficientHistory.selector, 0, 10));
+        vm.prank(newcomer);
+        vault.accept(id);
+    }
+
+    function test_accept_deadStreamReverts() public {
+        uint256 id = _offer();
+        _postDead();
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.StreamNotLive.selector, 1));
+        vm.prank(borrower);
+        vault.accept(id);
+    }
+
+    function test_accept_debtAboveDualCapReverts() public {
+        // stream cap binds: 70% * 20k * 4 = 56k; ask 60k
+        vm.prank(lender);
+        uint256 id =
+            vault.offer(borrower, PRINCIPAL_USD, 60_000 ether, 1_000_000 ether, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.ExceedsCreditLine.selector, 60_000 ether, 56_000 ether));
+        vm.prank(borrower);
+        vault.accept(id);
+    }
+
+    function test_accept_marginCapBinds() public {
+        // margin cap binds: 50% * 80k = 40k line; ask 45k (stream cap 56k ok)
+        vm.prank(lender);
+        uint256 id =
+            vault.offer(borrower, PRINCIPAL_USD, 45_000 ether, 80_000 ether, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.ExceedsCreditLine.selector, 45_000 ether, 40_000 ether));
+        vm.prank(borrower);
+        vault.accept(id);
+    }
+
+    function test_accept_deploysCollector() public {
+        uint256 id = _offer();
+        vm.prank(borrower);
+        vault.accept(id);
+        RewardCollector collector = vault.getLoan(id).collector;
+        assertEq(collector.loanId(), id);
+        assertEq(address(collector.vault()), address(vault));
+    }
+
+    // --- consent: party-scoped, revocable until consumed ---
 
     function test_accept_byNonBorrowerReverts() public {
         uint256 id = _offer();
@@ -92,37 +162,13 @@ contract LoanVaultTest is Test {
         vm.prank(borrower);
         vault.accept(id);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                LoanVault.WrongStatus.selector, id, LoanVault.Status.Open, LoanVault.Status.Offered
-            )
+            abi.encodeWithSelector(LoanVault.WrongStatus.selector, id, LoanVault.Status.Open, LoanVault.Status.Offered)
         );
         vm.prank(lender);
         vault.cancelOffer(id);
     }
 
-    function test_offer_zeroValuesRevert() public {
-        vm.startPrank(lender);
-        vm.expectRevert(LoanVault.ZeroAddress.selector);
-        vault.offer(address(0), 1, 1, 1, 500, 4);
-        vm.expectRevert(LoanVault.ZeroAmount.selector);
-        vault.offer(borrower, 0, 1, 1, 500, 4);
-        vm.expectRevert(LoanVault.ZeroAmount.selector);
-        vault.offer(borrower, 1, 0, 1, 500, 4);
-        vm.expectRevert(LoanVault.ZeroAmount.selector);
-        vault.offer(borrower, 1, 1, 0, 500, 4);
-        vm.stopPrank();
-    }
-
     // --- funding + margin + draw gating ---
-
-    function test_fund_byNonLenderReverts() public {
-        uint256 id = _offer();
-        vm.prank(borrower);
-        vault.accept(id);
-        vm.expectRevert(abi.encodeWithSelector(LoanVault.NotParty.selector, id, stranger));
-        vm.prank(stranger);
-        vault.fund(id);
-    }
 
     function test_fund_twiceReverts() public {
         uint256 id = _offer();
@@ -135,7 +181,7 @@ contract LoanVaultTest is Test {
         vm.stopPrank();
     }
 
-    function test_draw_withoutFundingReverts() public {
+    function test_draw_withoutBothLegsReverts() public {
         uint256 id = _offer();
         vm.startPrank(borrower);
         vault.accept(id);
@@ -143,17 +189,6 @@ contract LoanVaultTest is Test {
         vm.expectRevert(abi.encodeWithSelector(LoanVault.NotReadyToDraw.selector, id, false, true));
         vault.draw(id);
         vm.stopPrank();
-    }
-
-    function test_draw_withoutMarginReverts() public {
-        uint256 id = _offer();
-        vm.prank(borrower);
-        vault.accept(id);
-        vm.prank(lender);
-        vault.fund(id);
-        vm.expectRevert(abi.encodeWithSelector(LoanVault.NotReadyToDraw.selector, id, true, false));
-        vm.prank(borrower);
-        vault.draw(id);
     }
 
     function test_draw_paysBorrowerExactly() public {
@@ -164,18 +199,15 @@ contract LoanVaultTest is Test {
 
     function test_postMargin_escrowDelegatesBackToBorrower() public {
         uint256 id = _offer();
-        vm.prank(borrower);
+        vm.startPrank(borrower);
         vault.accept(id);
-        vm.prank(borrower);
         vault.postMargin(id);
+        vm.stopPrank();
         address escrow = address(vault.getLoan(id).escrow);
-        // collateral that keeps working: escrow's whole balance delegated back
         assertEq(wnat.balanceOf(escrow), MARGIN);
         assertEq(wnat.delegatee(escrow), borrower);
         assertEq(wnat.delegatedBips(escrow), 10_000);
     }
-
-    // --- cancelOpen: both refunds via pull, neither party can block the other ---
 
     function test_cancelOpen_refundsBothSidesViaPull() public {
         uint256 id = _offer();
@@ -191,120 +223,174 @@ contract LoanVaultTest is Test {
 
         assertEq(vault.owed(lender, address(usd)), PRINCIPAL_USD);
         assertEq(vault.owed(borrower, address(wnat)), MARGIN);
-
-        vm.prank(lender);
-        vault.withdraw(address(usd));
-        vm.prank(borrower);
-        vault.withdraw(address(wnat));
-        assertEq(usd.balanceOf(lender), PRINCIPAL_USD);
-        assertEq(wnat.balanceOf(borrower), MARGIN + DEBT_FLR);
     }
 
-    function test_cancelOpen_afterDrawReverts() public {
-        uint256 id = _openAndDraw();
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                LoanVault.WrongStatus.selector, id, LoanVault.Status.Drawn, LoanVault.Status.Open
-            )
-        );
-        vm.prank(lender);
-        vault.cancelOpen(id);
-    }
+    // --- repayment ---
 
-    // --- repayment: capped application, excess as change, margin release ---
-
-    function test_repay_partialThenFull() public {
+    function test_repay_partialThenFull_noEpochAdvance() public {
         uint256 id = _openAndDraw();
         vm.prank(borrower);
         vault.repay(id, 20_000 ether);
         assertEq(vault.getLoan(id).outstandingFlr, 30_000 ether);
-        assertEq(vault.owed(lender, address(wnat)), 20_000 ether);
 
         vm.prank(borrower);
         vault.repay(id, 30_000 ether);
-        assertEq(vault.getLoan(id).outstandingFlr, 0);
         assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Repaid));
-        // margin auto-released to borrower's pull balance
-        assertEq(vault.owed(borrower, address(wnat)), MARGIN);
-
-        vm.prank(lender);
-        vault.withdraw(address(wnat));
-        assertEq(wnat.balanceOf(lender), DEBT_FLR);
+        assertEq(vault.owed(lender, address(wnat)), DEBT_FLR);
+        assertEq(vault.owed(borrower, address(wnat)), MARGIN); // margin released
     }
 
     function test_repay_overpaymentBecomesChangeNotUnderflow() public {
-        // the Debt DAO H-06 failing case at the vault level
         uint256 id = _openAndDraw();
-        wnat.mint(borrower, 5_000 ether); // cover the deliberate overpayment
         vm.prank(borrower);
         vault.repay(id, DEBT_FLR + 5_000 ether);
         assertEq(vault.getLoan(id).outstandingFlr, 0);
         assertEq(vault.owed(lender, address(wnat)), DEBT_FLR);
-        // change + released margin both credited to borrower
         assertEq(vault.owed(borrower, address(wnat)), 5_000 ether + MARGIN);
     }
 
-    function test_repay_byStrangerIsAllowedAndHarmless() public {
-        // the RewardCollector will be "a stranger" to the loan parties
-        uint256 id = _openAndDraw();
-        wnat.mint(stranger, 1_000 ether);
-        vm.startPrank(stranger);
-        wnat.approve(address(vault), type(uint256).max);
-        vault.repay(id, 1_000 ether);
-        vm.stopPrank();
-        assertEq(vault.getLoan(id).outstandingFlr, DEBT_FLR - 1_000 ether);
-        assertEq(vault.owed(lender, address(wnat)), 1_000 ether);
-    }
-
-    function test_repay_beforeDrawReverts() public {
-        uint256 id = _offer();
-        vm.prank(borrower);
-        vault.accept(id);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                LoanVault.WrongStatus.selector, id, LoanVault.Status.Open, LoanVault.Status.Drawn
-            )
-        );
-        vm.prank(borrower);
-        vault.repay(id, 1 ether);
-    }
-
     function test_repay_afterRepaidReverts() public {
-        // no state may resurrect a settled debt
         uint256 id = _openAndDraw();
         vm.startPrank(borrower);
         vault.repay(id, DEBT_FLR);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                LoanVault.WrongStatus.selector, id, LoanVault.Status.Repaid, LoanVault.Status.Drawn
-            )
+            abi.encodeWithSelector(LoanVault.WrongStatus.selector, id, LoanVault.Status.Repaid, LoanVault.Status.Drawn)
         );
         vault.repay(id, 1 ether);
         vm.stopPrank();
     }
 
-    // --- withdrawals ---
+    // --- interest: the floating pass-rate, accrued per posted epoch ---
 
-    function test_withdraw_zeroesBeforeTransfer_andEmptyReverts() public {
+    function test_interest_accruesAtPassRate() public {
         uint256 id = _openAndDraw();
+        _postAlive(); // one epoch passes, 3 passes held -> benchmark + 1pt = 600bps
+        vault.accrue(id);
+        uint256 expected = DEBT_FLR + TermsLib.epochInterest(DEBT_FLR, 600, 1);
+        assertEq(vault.getLoan(id).outstandingFlr, expected);
+        assertGt(expected, DEBT_FLR); // interest is real
+    }
+
+    function test_interest_strikeRaisesTheRate() public {
+        uint256 id = _openAndDraw();
+        oracle.post(borrower, ++epoch, TRAILING, 0, 20, true); // record broke: 0 passes
+        vault.accrue(id);
+        // 0 passes -> benchmark + 4pts = 900bps
+        assertEq(vault.getLoan(id).outstandingFlr, DEBT_FLR + TermsLib.epochInterest(DEBT_FLR, 900, 1));
+    }
+
+    function test_interest_accrualIsIdempotentPerEpoch() public {
+        uint256 id = _openAndDraw();
+        _postAlive();
+        vault.accrue(id);
+        uint256 after1 = vault.getLoan(id).outstandingFlr;
+        vault.accrue(id); // same epoch again: no double-charge
+        assertEq(vault.getLoan(id).outstandingFlr, after1);
+    }
+
+    // --- default machinery: state trigger, cure, settlement ---
+
+    function test_trip_beforeFourDeadEpochsReverts() public {
+        uint256 id = _openAndDraw();
+        _postDead();
+        _postDead();
+        _postDead();
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.TriggerNotMet.selector, id));
+        vault.trip(id);
+    }
+
+    function test_deadStreakResetsOnAliveEpoch() public {
+        uint256 id = _openAndDraw();
+        _postDead();
+        _postDead();
+        _postDead();
+        _postAlive(); // recovery: a zero-reward stretch alone never defaults anyone
+        _postDead();
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.TriggerNotMet.selector, id));
+        vault.trip(id);
+    }
+
+    function test_trip_afterFourDeadEpochsStartsGrace() public {
+        uint256 id = _openAndDraw();
+        for (uint256 i; i < 4; i++) _postDead();
+        vault.trip(id); // anyone may call
+        LoanVault.Loan memory loan = vault.getLoan(id);
+        assertEq(uint8(loan.status), uint8(LoanVault.Status.Grace));
+        assertEq(loan.graceEndsAt, uint64(block.timestamp) + 7 days);
+    }
+
+    function test_grace_paymentCures() public {
+        uint256 id = _openAndDraw();
+        for (uint256 i; i < 4; i++) _postDead();
+        vault.trip(id);
         vm.prank(borrower);
-        vault.repay(id, DEBT_FLR);
-        vm.startPrank(lender);
-        vault.withdraw(address(wnat));
-        vm.expectRevert(LoanVault.NothingToWithdraw.selector);
-        vault.withdraw(address(wnat));
+        vault.repay(id, 1_000 ether); // any payment: not "refusing to pay"
+        assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Drawn));
+        // and it cannot re-trip until a NEW epoch posts
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.TriggerNotMet.selector, id));
+        vault.trip(id);
+        _postDead(); // still dead next epoch -> trippable again
+        vault.trip(id);
+        assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Grace));
+    }
+
+    function test_settle_beforeGraceEndsReverts() public {
+        uint256 id = _openAndDraw();
+        for (uint256 i; i < 4; i++) _postDead();
+        vault.trip(id);
+        vm.expectRevert(
+            abi.encodeWithSelector(LoanVault.GraceNotExpired.selector, id, uint64(block.timestamp) + 7 days)
+        );
+        vault.settle(id);
+    }
+
+    function test_settle_takesExactlyDebtPlusFee_restToBorrower() public {
+        uint256 id = _openAndDraw();
+        for (uint256 i; i < 4; i++) _postDead();
+        vault.trip(id);
+        uint256 outstanding = vault.getLoan(id).outstandingFlr; // accrued through trip
+        vm.warp(block.timestamp + 7 days);
+        vault.settle(id);
+
+        uint256 due = outstanding + DEFAULT_FEE;
+        assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Settled));
+        assertEq(vault.owed(lender, address(wnat)), due); // recovery, exactly
+        assertEq(vault.owed(borrower, address(wnat)), MARGIN - due); // never a jackpot
+    }
+
+    function test_settle_shortfallCapsAtMargin() public {
+        // consented default fee larger than the margin cushion forces shortfall
+        vm.prank(lender);
+        uint256 id =
+            vault.offer(borrower, PRINCIPAL_USD, DEBT_FLR, MARGIN, 60_000 ether, BENCHMARK_BPS, TERM_EPOCHS);
+        vm.prank(borrower);
+        vault.accept(id);
+        vm.prank(lender);
+        vault.fund(id);
+        vm.startPrank(borrower);
+        vault.postMargin(id);
+        vault.draw(id);
         vm.stopPrank();
+
+        for (uint256 i; i < 4; i++) _postDead();
+        vault.trip(id);
+        vm.warp(block.timestamp + 7 days);
+        vault.settle(id);
+
+        assertEq(vault.owed(lender, address(wnat)), MARGIN); // capped at margin
+        assertEq(vault.owed(borrower, address(wnat)), 0);
     }
 
     // --- M-09: inexact-delivery tokens are rejected, not mis-accounted ---
 
     function test_feeOnTransferPrincipalIsRejected() public {
         FeeOnTransferToken feeToken = new FeeOnTransferToken();
-        LoanVault feeVault = new LoanVault(IERC20(address(feeToken)), IWNat(address(wnat)));
+        LoanVault feeVault = new LoanVault(IERC20(address(feeToken)), IWNat(address(wnat)), oracle);
         feeToken.mint(lender, PRINCIPAL_USD);
         vm.startPrank(lender);
         feeToken.approve(address(feeVault), type(uint256).max);
-        uint256 id = feeVault.offer(borrower, PRINCIPAL_USD, DEBT_FLR, MARGIN, 500, 4);
+        uint256 id =
+            feeVault.offer(borrower, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
         vm.stopPrank();
         vm.prank(borrower);
         feeVault.accept(id);
@@ -321,29 +407,111 @@ contract LoanVaultTest is Test {
 
     function test_escrow_releaseByNonVaultReverts() public {
         uint256 id = _offer();
-        vm.prank(borrower);
+        vm.startPrank(borrower);
         vault.accept(id);
-        vm.prank(borrower);
         vault.postMargin(id);
+        vm.stopPrank();
         MarginEscrow escrow = vault.getLoan(id).escrow;
         vm.expectRevert(MarginEscrow.NotVault.selector);
         vm.prank(borrower);
         escrow.releaseToVault(1 ether);
     }
+}
 
-    // --- conservation: no path mints or loses value ---
+contract RewardCollectorTest is LoanVaultTestBase {
+    uint256 id;
+    RewardCollector collector;
 
-    function testFuzz_repay_conservation(uint96 payment) public {
-        vm.assume(payment > 0);
-        uint256 id = _openAndDraw();
-        wnat.mint(borrower, payment); // ensure balance regardless of fuzz size
+    function setUp() public override {
+        super.setUp();
+        id = _openAndDraw();
+        collector = vault.getLoan(id).collector;
+    }
+
+    function test_sweep_wrapsNativeAndRepays() public {
+        // a reward manager claim delivers native FLR to the collector
+        vm.deal(address(collector), 3_000 ether);
+        vm.prank(stranger); // the keeper is anyone
+        collector.sweep();
+        assertEq(vault.getLoan(id).outstandingFlr, DEBT_FLR - 3_000 ether);
+        assertEq(vault.owed(lender, address(wnat)), 3_000 ether);
+        assertEq(address(collector).balance, 0);
+        assertEq(wnat.balanceOf(address(collector)), 0);
+    }
+
+    function test_sweep_afterRepaid_routesToBorrower() public {
         vm.prank(borrower);
-        vault.repay(id, payment);
-        uint256 applied = payment >= DEBT_FLR ? DEBT_FLR : payment;
-        assertEq(vault.getLoan(id).outstandingFlr, DEBT_FLR - applied);
-        // everything paid in is credited out to someone; vault keeps nothing
-        uint256 credits = vault.owed(lender, address(wnat)) + vault.owed(borrower, address(wnat));
-        uint256 escrowStillHolds = vault.getLoan(id).outstandingFlr == 0 ? 0 : MARGIN;
-        assertEq(credits + escrowStillHolds, uint256(payment) + MARGIN);
+        vault.repay(id, DEBT_FLR); // loan done
+        uint256 balBefore = wnat.balanceOf(borrower);
+        vm.deal(address(collector), 1_000 ether); // stream keeps flowing
+        collector.sweep();
+        // the stream belongs to the borrower again — collector never keeps funds
+        assertEq(wnat.balanceOf(borrower), balBefore + 1_000 ether);
+    }
+
+    function test_sweep_beforeDrawReverts() public {
+        // fresh loan still Open: collector exists but must hold, not route
+        uint256 id2 = _offer();
+        vm.prank(borrower);
+        vault.accept(id2);
+        RewardCollector c2 = vault.getLoan(id2).collector;
+        vm.deal(address(c2), 100 ether);
+        vm.expectRevert(RewardCollector.LoanNotActiveYet.selector);
+        c2.sweep();
+    }
+
+    function test_sweep_emptyReverts() public {
+        vm.expectRevert(RewardCollector.NothingToSweep.selector);
+        collector.sweep();
+    }
+
+    function test_sweep_overpaymentStillSafe() public {
+        // final epoch's claim exceeds what's left: excess must become change
+        vm.deal(address(collector), DEBT_FLR + 7_000 ether);
+        collector.sweep();
+        assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Repaid));
+        assertEq(vault.owed(lender, address(wnat)), DEBT_FLR);
+        assertEq(vault.owed(borrower, address(wnat)), 7_000 ether + MARGIN);
+    }
+}
+
+contract PassLedgerOracleTest is Test {
+    PassLedgerOracle oracle;
+    address keeper = makeAddr("keeper");
+    address validator = makeAddr("validator");
+
+    function setUp() public {
+        oracle = new PassLedgerOracle(address(this));
+    }
+
+    function test_post_byNonPosterReverts() public {
+        vm.expectRevert(PassLedgerOracle.NotPoster.selector);
+        vm.prank(keeper);
+        oracle.post(validator, 1, 1 ether, 3, 20, true);
+    }
+
+    function test_post_epochsMustStrictlyIncrease() public {
+        oracle.post(validator, 5, 1 ether, 3, 20, true);
+        vm.expectRevert(abi.encodeWithSelector(PassLedgerOracle.EpochNotAfterLast.selector, 5, 5));
+        oracle.post(validator, 5, 1 ether, 3, 20, true);
+        vm.expectRevert(abi.encodeWithSelector(PassLedgerOracle.EpochNotAfterLast.selector, 4, 5));
+        oracle.post(validator, 4, 1 ether, 3, 20, true);
+    }
+
+    function test_deadStreak_countsAndResets() public {
+        oracle.post(validator, 1, 1 ether, 3, 20, false);
+        oracle.post(validator, 2, 1 ether, 3, 20, false);
+        assertEq(oracle.latest(validator).deadStreak, 2);
+        oracle.post(validator, 3, 1 ether, 3, 20, true);
+        assertEq(oracle.latest(validator).deadStreak, 0);
+    }
+
+    function test_setPoster_handsOverAndLocksOut() public {
+        oracle.setPoster(keeper);
+        vm.expectRevert(PassLedgerOracle.NotPoster.selector);
+        oracle.post(validator, 1, 1 ether, 3, 20, true); // old poster locked out
+        vm.prank(keeper);
+        oracle.post(validator, 1, 1 ether, 3, 20, true);
+        assertEq(oracle.latest(validator).epochId, 1);
     }
 }

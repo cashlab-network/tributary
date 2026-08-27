@@ -50,6 +50,26 @@ contract TermsLibTest is Test {
         assertGe(TermsLib.rateBps(benchmark, passes), uint256(benchmark) + 100);
     }
 
+    // --- epochInterest: annualized rate, 3.5-day epochs, linear ---
+
+    function test_epochInterest_zeroEpochsIsZero() public pure {
+        assertEq(TermsLib.epochInterest(50_000 ether, 600, 0), 0);
+    }
+
+    function test_epochInterest_knownValue() public pure {
+        // 50k FLR at 6% annual for one 3.5-day epoch:
+        // 50_000e18 * 600 * 35 / (10_000 * 3650) = ~28.767 FLR
+        assertEq(TermsLib.epochInterest(50_000 ether, 600, 1), uint256(50_000 ether) * 600 * 35 / 36_500_000);
+    }
+
+    function test_epochInterest_linearInEpochs() public pure {
+        // linear up to integer-division rounding (< 10 wei on this scale)
+        uint256 one = TermsLib.epochInterest(50_000 ether, 600, 1);
+        uint256 ten = TermsLib.epochInterest(50_000 ether, 600, 10);
+        assertApproxEqAbs(ten, one * 10, 10);
+        assertGe(ten, one * 10); // batching never undercharges vs per-epoch
+    }
+
     // --- applyRepayment: the H-06 cap ---
 
     function test_applyRepayment_overpaymentBecomesChange() public pure {

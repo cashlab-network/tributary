@@ -8,4 +8,5 @@ import {IERC20} from "./IERC20.sol";
 ///         balance, applying dynamically to future balance changes.
 interface IWNat is IERC20 {
     function delegate(address to, uint256 bips) external;
+    function deposit() external payable;
 }
