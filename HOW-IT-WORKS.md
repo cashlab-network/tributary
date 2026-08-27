@@ -189,19 +189,16 @@ delegation is now live (borrower WFLR → active provider, 2026-08-27), so
 genuinely earned rewards exist to claim within epochs. The first real
 claim-and-sweep is the next milestone.*
 
-**G3 · Demo epoch numbers were made up.** We posted epochs "100, 1000…";
-Coston2 is really at ~5992. Harmless (per-borrower monotonic) but the real
-keeper must post true epoch ids derived from the published files.
+**G3 · FIXED same day.** The v3 stack posts under the REAL reward epoch id
+read from FlareSystemsManager (5992 at deploy). Keeper discipline still
+applies for future posts.
 
-**G4 · The two LIVE vaults have the interest bug.** Today's fix (epoch
-length read from the chain) came AFTER deployment — the live exhibits
-charge 3.5-day interest on 6-hour epochs (14× overcharge). Fine as museum
-pieces; **a v3 redeploy with both of today's fixes is required** and nothing
-should ever be quoted off the current live vaults' interest numbers.
+**G4 · FIXED same day — v3 is live** (`0x8Ad5…2Fe4`) with epoch duration
+read from the chain. The v1/v2 vaults remain museum pieces only; never
+quote interest numbers from them.
 
-**G5 · Live escrows predate the reward-claim fix** — their delegation
-rewards are unclaimable (exactly the bug now fixed in code). Same answer:
-v3 redeploy.
+**G5 · FIXED same day** — v3 escrows self-enroll their claims at birth
+(keeper executes, borrower sole recipient).
 
 **G6 · Real validators haven't enrolled anything.** The BorrowerAccount
 requires the borrower to adopt it as their reward identity — real migration
@@ -215,17 +212,19 @@ number in the offer, not derived on-chain. A dishonest pair could consent to
 a nonsense rate — fine between consenting adults, but the marketplace UI
 must surface the real benchmark.
 
-**G8 · Fixed-dollar flavor doesn't exist yet.** Only its price feed is
-verified (FTSOv2 FLR/USD, free, fresh). All live loans are the fixed-FLR
-flavor.
+**G8 · FIXED same day — the fixed-dollar flavor is built and PROVEN LIVE:**
+a $0.05 loan in real USDT0 repaid in FLR valued by the real FtsoV2; the
+lender received exactly $0.05 worth (7.4626 WFLR at the live price),
+conservation wei-exact. Borrower keeps upside by construction (tested:
+price doubles, half the coins).
 
 **G9 · Nobody independent has attacked this code.** 67 self-written tests
 are necessary, not sufficient. Independent refutation review → then
 professional audit before any real value, ever.
 
-**G10 · Policy constants are mainnet-shaped.** 10-epoch history, 4-dead-epoch
-trigger, 7-day grace: sensible at 3.5-day epochs; odd at 6-hour ones (4 dead
-epochs = 1 day). These should be per-deployment policy, consciously chosen.
+**G10 · FIXED same day** — history minimum, dead-epoch trigger, and grace
+length are now per-deployment configuration, chosen consciously per chain
+instead of hardcoded.
 
 **G11 · One lender per loan, non-transferable.** No syndication, no selling
 your position, no partial exits. Deliberate v1 scope — but it caps lender
@@ -235,10 +234,9 @@ liquidity and is the first thing sophisticated lenders will ask about.
 scoreboard posts stop. (Mainnet FSP rewards expire ~90 days — a dead keeper
 eventually costs real money.) Needs at least a second independent executor.
 
-**G13 · Nothing checks the price-pair sanity.** `principalUsd` (6 decimals)
-and `debtFlr` (18 decimals) are consented as a pair; the contract never
-checks the implied FLR price is sane. A UI must; the contract arguably
-should bound it against FTSO ± a band.
+**G13 · FIXED same day** — fixed-FLR pairs are now sanity-checked at accept
+against the FTSO within a configurable band (±25% on v3); a fat-fingered
+pair reverts PriceOutOfBand. FTSO reads carry a staleness guard.
 
 ## What's next, in order
 
