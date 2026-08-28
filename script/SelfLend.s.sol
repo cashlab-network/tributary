@@ -39,12 +39,13 @@ contract SelfLend is Script {
         address me = vm.addr(pk);
         IWNat wnat = IWNat(WNAT);
 
-        // Loan size — override with env vars. Defaults: borrow 1 USDT0, owe it
-        // back in dollars (fixed-dollar), 400 FLR margin (a $1 debt needs
-        // margin worth ~$2 at the ~$0.0065 testnet price), 4-epoch term.
-        uint256 principalUsd = vm.envOr("PRINCIPAL_USD", uint256(1e6)); // 1 USDT0
-        uint256 debtUsd = vm.envOr("DEBT_USD", uint256(1e6));
-        uint256 marginFlr = vm.envOr("MARGIN_FLR", uint256(400 ether));
+        // Loan size — override with env vars. Faucet-friendly defaults: borrow
+        // $0.30 (fixed-dollar), 100 FLR margin (a $0.30 debt needs margin worth
+        // ~$0.60 at the ~$0.0065 testnet price -> ~92 FLR; 100 gives headroom),
+        // 4-epoch term. Scale up with env vars once you've seen it work.
+        uint256 principalUsd = vm.envOr("PRINCIPAL_USD", uint256(3e5)); // $0.30
+        uint256 debtUsd = vm.envOr("DEBT_USD", uint256(3e5));
+        uint256 marginFlr = vm.envOr("MARGIN_FLR", uint256(100 ether));
 
         uint64 epoch = uint64(IFlareSystemsManager(FSM).getCurrentRewardEpochId());
 
@@ -83,7 +84,7 @@ contract SelfLend is Script {
 
         // 4. borrower leg: accept, wrap margin + a repayment buffer, approve
         vault.accept(id);
-        wnat.deposit{value: marginFlr + 200 ether}(); // margin + repay buffer
+        wnat.deposit{value: marginFlr + 60 ether}(); // margin + repay buffer
         wnat.approve(address(vault), type(uint256).max);
 
         // 5. fund (lender) + margin + draw (borrower) — all you
@@ -93,9 +94,9 @@ contract SelfLend is Script {
         console2.log("DRAWN. your USDT0 balance now:", IERC20(USDT0).balanceOf(me));
         console2.log("outstanding (USD 6dp):", vault.getLoan(id).outstanding);
 
-        // 6. repay in FLR valued at the live FtsoV2 price (~154 FLR clears $1);
-        //    excess over the debt returns to you as change
-        vault.repay(id, 200 ether);
+        // 6. repay in FLR valued at the live FtsoV2 price (~46 FLR clears
+        //    $0.30); excess over the debt returns to you as change
+        vault.repay(id, 60 ether);
         console2.log("after one repayment, outstanding (USD 6dp):", vault.getLoan(id).outstanding);
         console2.log("loan status (3=Drawn,6=Repaid):", vault.statusOf(id));
         vm.stopBroadcast();
