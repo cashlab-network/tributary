@@ -103,6 +103,7 @@ contract LoanVault {
     event LoanOpened(uint256 indexed id, address collector);
     event OfferCancelled(uint256 indexed id);
     event OpenCancelled(uint256 indexed id, address by);
+    event LenderTransferred(uint256 indexed id, address indexed from, address indexed to);
     event LoanFunded(uint256 indexed id);
     event MarginPosted(uint256 indexed id, address escrow);
     event LoanDrawn(uint256 indexed id);
@@ -252,6 +253,30 @@ contract LoanVault {
         if (loan.funded) owed[loan.lender][address(usd)] += loan.principalUsd;
         _releaseMargin(loan);
         emit OpenCancelled(id, msg.sender);
+    }
+
+    /// @notice Lender-position transfer (G11): the lender sells/assigns their
+    ///         side of a live loan — the right to receive future repayments
+    ///         and settlement recovery — to a new address. This is the
+    ///         secondary-market lever the review flagged as the first thing
+    ///         sophisticated lenders ask for. It changes NO term the borrower
+    ///         consented to (the lender is only a payee), so no borrower
+    ///         consent is needed. Already-accrued pull-credits stay with
+    ///         whoever earned them — you sell the position, you keep what you
+    ///         already collected. Not allowed once the loan is terminal
+    ///         (nothing left to receive).
+    function transferLender(uint256 id, address newLender) external {
+        Loan storage loan = loans[id];
+        Status s = loan.status;
+        if (s == Status.None) revert LoanDoesNotExist(id);
+        if (s == Status.Settled || s == Status.Repaid || s == Status.Closed) {
+            revert WrongStatus(id, s, Status.Drawn);
+        }
+        if (msg.sender != loan.lender) revert NotParty(id, msg.sender);
+        if (newLender == address(0)) revert ZeroAddress();
+        address old = loan.lender;
+        loan.lender = newLender;
+        emit LenderTransferred(id, old, newLender);
     }
 
     // ---------------------------------------------------------------- funding

@@ -66,11 +66,13 @@ contract PassLedgerOracle {
         bool alive
     );
     event PosterChanged(address indexed poster);
+    event BackupPosterSet(address indexed poster, bool allowed);
     event RewardProven(
         bytes20 indexed beneficiary, uint24 indexed epochId, ClaimType claimType, uint120 amount
     );
 
-    address public poster;
+    address public poster; // primary poster + admin
+    mapping(address => bool) public isBackupPoster; // G12: redundancy
     mapping(address => Record) internal records;
 
     // Trustless lane: proven reward amounts keyed by (beneficiary, epoch, type).
@@ -96,13 +98,25 @@ contract PassLedgerOracle {
         emit PosterChanged(poster_);
     }
 
-    /// @notice Hand the poster role over (e.g. deployer -> keeper). The role
-    ///         is a single revocable seat, not a standing multi-party grant.
+    /// @notice Hand the primary poster (admin) role over (e.g. deployer ->
+    ///         keeper). The primary poster is also the admin that manages the
+    ///         backup posters below.
     function setPoster(address poster_) external {
         if (msg.sender != poster) revert NotPoster();
         if (poster_ == address(0)) revert ZeroAddress();
         poster = poster_;
         emit PosterChanged(poster_);
+    }
+
+    /// @notice Keeper redundancy (G12): the primary poster authorizes backup
+    ///         posters, so a single keeper key dying does not freeze the
+    ///         trusted lane. postWithProof is already permissionless, so only
+    ///         this trusted lane needed a redundancy lever.
+    function setBackupPoster(address poster_, bool allowed) external {
+        if (msg.sender != poster) revert NotPoster();
+        if (poster_ == address(0)) revert ZeroAddress();
+        isBackupPoster[poster_] = allowed;
+        emit BackupPosterSet(poster_, allowed);
     }
 
     /// @notice Post one borrower's ledger row for one reward epoch. Epochs
@@ -115,7 +129,7 @@ contract PassLedgerOracle {
         uint32 settledEpochs,
         bool alive
     ) external {
-        if (msg.sender != poster) revert NotPoster();
+        if (msg.sender != poster && !isBackupPoster[msg.sender]) revert NotPoster();
         if (borrower == address(0)) revert ZeroAddress();
         Record storage r = records[borrower];
         if (epochId <= r.epochId) revert EpochNotAfterLast(epochId, r.epochId);

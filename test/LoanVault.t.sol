@@ -181,6 +181,59 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         assertEq(address(collector.vault()), address(vault));
     }
 
+    // --- G11: lender-position transfer (secondary market) ---
+
+    function test_transferLender_futureRepaymentsGoToNewLender() public {
+        uint256 id = _openAndDraw();
+        address buyer = makeAddr("positionBuyer");
+        vm.prank(lender);
+        vault.transferLender(id, buyer);
+        assertEq(vault.getLoan(id).lender, buyer);
+        // repay -> credit goes to the NEW lender, not the old one
+        vm.prank(borrower);
+        vault.repay(id, 10_000 ether);
+        assertEq(vault.owed(buyer, address(wnat)), 10_000 ether);
+        assertEq(vault.owed(lender, address(wnat)), 0);
+    }
+
+    function test_transferLender_keepsAlreadyEarned() public {
+        uint256 id = _openAndDraw();
+        vm.prank(borrower);
+        vault.repay(id, 10_000 ether); // old lender earns this
+        address buyer = makeAddr("positionBuyer");
+        vm.prank(lender);
+        vault.transferLender(id, buyer);
+        vm.prank(borrower);
+        vault.repay(id, 10_000 ether); // new lender earns this
+        assertEq(vault.owed(lender, address(wnat)), 10_000 ether); // kept
+        assertEq(vault.owed(buyer, address(wnat)), 10_000 ether);
+    }
+
+    function test_transferLender_byNonLenderReverts() public {
+        uint256 id = _openAndDraw();
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.NotParty.selector, id, stranger));
+        vm.prank(stranger);
+        vault.transferLender(id, stranger);
+    }
+
+    function test_transferLender_afterRepaidReverts() public {
+        uint256 id = _openAndDraw();
+        vm.prank(borrower);
+        vault.repay(id, DEBT_FLR);
+        vm.expectRevert(
+            abi.encodeWithSelector(LoanVault.WrongStatus.selector, id, LoanVault.Status.Repaid, LoanVault.Status.Drawn)
+        );
+        vm.prank(lender);
+        vault.transferLender(id, makeAddr("buyer"));
+    }
+
+    function test_transferLender_zeroReverts() public {
+        uint256 id = _openAndDraw();
+        vm.expectRevert(LoanVault.ZeroAddress.selector);
+        vm.prank(lender);
+        vault.transferLender(id, address(0));
+    }
+
     // --- consent: party-scoped, revocable until consumed ---
 
     function test_accept_byNonBorrowerReverts() public {
@@ -610,5 +663,29 @@ contract PassLedgerOracleTest is Test {
         vm.prank(keeper);
         oracle.post(validator, 1, 1 ether, 3, 20, true);
         assertEq(oracle.latest(validator).epochId, 1);
+    }
+
+    // --- G12: backup posters (keeper redundancy) ---
+
+    function test_backupPoster_canPostAlongsidePrimary() public {
+        oracle.setBackupPoster(keeper, true);
+        vm.prank(keeper);
+        oracle.post(validator, 1, 1 ether, 3, 20, true);
+        oracle.post(validator, 2, 1 ether, 3, 20, true); // primary still works too
+        assertEq(oracle.latest(validator).epochId, 2);
+    }
+
+    function test_backupPoster_onlyAdminGrants() public {
+        vm.expectRevert(PassLedgerOracle.NotPoster.selector);
+        vm.prank(keeper);
+        oracle.setBackupPoster(keeper, true);
+    }
+
+    function test_backupPoster_revocable() public {
+        oracle.setBackupPoster(keeper, true);
+        oracle.setBackupPoster(keeper, false);
+        vm.expectRevert(PassLedgerOracle.NotPoster.selector);
+        vm.prank(keeper);
+        oracle.post(validator, 1, 1 ether, 3, 20, true);
     }
 }
