@@ -317,7 +317,82 @@ async function boot() {
   }
 }
 
+/* ---- wallet write path (Coston2 only) ---- */
+const COSTON2_HEX = "0x72"; // 114
+let signer = null, walletAddr = null;
+
+const WNAT_WRITE_ABI = [
+  "function allowance(address,address) view returns (uint256)",
+  "function approve(address,uint256) returns (bool)",
+];
+const VAULT_WRITE_ABI = ["function repay(uint256,uint256)"];
+
+async function connectWallet() {
+  const msg = el("w-msg");
+  if (!window.ethereum) {
+    el("wallet-status").innerHTML = `<span style="color:var(--warn)">No wallet detected. Install a Coston2-capable wallet (e.g. MetaMask) and reload.</span>`;
+    return;
+  }
+  try {
+    const bp = new ethers.BrowserProvider(window.ethereum);
+    await bp.send("eth_requestAccounts", []);
+    const net = await bp.getNetwork();
+    if (Number(net.chainId) !== 114) {
+      try {
+        await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: COSTON2_HEX }] });
+      } catch (sw) {
+        // offer to add the chain
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: COSTON2_HEX, chainName: "Flare Coston2",
+            nativeCurrency: { name: "Coston2 Flare", symbol: "C2FLR", decimals: 18 },
+            rpcUrls: [RPC], blockExplorerUrls: [EXPLORER],
+          }],
+        });
+      }
+    }
+    signer = await bp.getSigner();
+    walletAddr = await signer.getAddress();
+    el("wallet-status").innerHTML = `Connected: <span class="mono">${shortAddr(walletAddr)}</span> on Coston2.`;
+    el("connect").textContent = shortAddr(walletAddr);
+    el("w-repay").disabled = false;
+  } catch (e) {
+    el("wallet-status").innerHTML = `<span style="color:var(--bad)">Connect failed: ${e.message || e}</span>`;
+  }
+}
+
+async function repayFromWallet() {
+  const msg = el("w-msg");
+  if (!signer) { msg.textContent = "Connect a wallet first."; return; }
+  const id = el("w-id").value.trim();
+  const amtFlr = el("w-amt").value.trim();
+  if (!id || !amtFlr || Number(amtFlr) <= 0) { msg.textContent = "Enter a loan id and a positive amount."; return; }
+  const amt = ethers.parseUnits(amtFlr, 18);
+  try {
+    msg.textContent = "checking WFLR allowance…";
+    const w = new ethers.Contract(A.wnat, WNAT_WRITE_ABI, signer);
+    const cur = await w.allowance(walletAddr, A.vault);
+    if (cur < amt) {
+      msg.textContent = "approving WFLR (sign in wallet)…";
+      const txa = await w.approve(A.vault, ethers.MaxUint256);
+      await txa.wait();
+    }
+    msg.textContent = "repaying (sign in wallet)…";
+    const v = new ethers.Contract(A.vault, VAULT_WRITE_ABI, signer);
+    const tx = await v.repay(id, amt, { gasLimit: 900000n });
+    msg.innerHTML = `sent: <a href="${EXPLORER}/tx/${tx.hash}" target="_blank" rel="noopener">${tx.hash.slice(0, 12)}…</a> — waiting…`;
+    await tx.wait();
+    msg.innerHTML = `<span style="color:var(--good)">✓ repaid. <a href="${EXPLORER}/tx/${tx.hash}" target="_blank" rel="noopener">receipt</a></span>`;
+    boot(); // refresh the loan cards
+  } catch (e) {
+    msg.innerHTML = `<span style="color:var(--bad)">${(e.shortMessage || e.message || e).slice(0, 160)}</span>`;
+  }
+}
+
 el("refresh").addEventListener("click", boot);
 el("lookup-btn").addEventListener("click", lookupLedger);
 el("calc-btn").addEventListener("click", calculate);
+el("connect").addEventListener("click", connectWallet);
+el("w-repay").addEventListener("click", repayFromWallet);
 boot();

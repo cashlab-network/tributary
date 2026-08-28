@@ -120,6 +120,7 @@ td{padding:.35rem .5rem;border-bottom:1px solid var(--line);font-family:"IBM Ple
     <span class="chip">epoch <b id="epoch">—</b></span>
     <span class="chip">FLR/USD <b id="price">—</b></span>
     <span class="chip">block <b id="block">—</b></span>
+    <button class="ghost" id="connect" style="padding:.3rem .8rem;font-size:.78rem">Connect wallet</button>
   </div>
 
   <div id="errzone"></div>
@@ -184,6 +185,23 @@ td{padding:.35rem .5rem;border-bottom:1px solid var(--line);font-family:"IBM Ple
         <div class="toolbar" style="margin-top:.9rem"><button id="calc-btn">Calculate</button></div>
         <div id="calc-out" class="out" style="margin-top:1rem"></div>
       </div>
+    </div>
+  </div>
+
+  <p class="eyebrow" style="margin-top:2.6rem">Do it live (wallet)</p>
+  <h2>Repay a loan from your wallet</h2>
+  <p class="section-sub">Connect a Coston2 wallet and repay a live loan in WFLR — a real signed
+  transaction. (The loan itself is created with <code>script/SelfLend.s.sol</code>; this pays it
+  down.) Nothing but the tx you approve is ever sent.</p>
+  <div class="panel" style="max-width:34rem">
+    <div id="wallet-status" class="hint" style="margin-top:0">Wallet not connected.</div>
+    <div class="grid2" style="gap:.6rem;margin-top:.6rem">
+      <div><label>Loan id</label><input id="w-id" type="number" value="1"></div>
+      <div><label>Repay amount (WFLR)</label><input id="w-amt" type="number" value="60"></div>
+    </div>
+    <div class="toolbar" style="margin-top:.9rem">
+      <button id="w-repay" disabled>Repay</button>
+      <span class="hint" id="w-msg"></span>
     </div>
   </div>
 
