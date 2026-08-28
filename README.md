@@ -8,53 +8,79 @@ costs without selling the tokens they'd rather keep compounding.
 Contracts hold the funds. Code enforces the terms. Tributary is the venue,
 **never the bank**.
 
-- Public design: https://cashlab.network/validator-credit (migrating to
-  Tributary's own domain)
-- v1 target: Flare Coston2 testnet — fixed-FLR flavor first
+- Public design: https://cashlab.network/validator-credit
+- Live on: Flare **Coston2 testnet** (throwaway keys, faucet tokens, no real value)
+
+---
 
 ## Status (2026-08-27)
 
-v1 core is BUILT and fork-proven. `LoanVault` + per-loan `MarginEscrow`
-(delegation-back) + `PassLedgerOracle` (underwriting, floating pass-rate,
-dead-streak trigger) + per-loan `RewardCollector` (wrap + sweep). 51 passing
-tests including every inherited Debt DAO failure case. Full life-of-a-loan
-executed against the REAL WNat on a Coston2 fork (offer → underwrite → draw →
-4 reward sweeps with interest → Repaid; conservation exact on independent
-cast verification; `script/Demo.s.sol`). Real-testnet deployment
-(`script/TestnetDemo.s.sol`) is rehearsed and one faucet drip away.
+Both loan flavors built and live on Coston2. **106 tests**, including a
+fork-integration suite against the real Coston2 WNat + FtsoV2. **Two
+independent adversarial security reviews**, every finding fixed. Not yet
+audited by a professional human — that is the gate before any real value.
 
-Still ahead (see SPEC-V1.md): real claim-routing enrollment tooling
-(ClaimSetupManager/ValidatorRewardManager setter checker), keeper automation
-fed from the published ledger files, fixed-dollar flavor (FTSO), independent
-review, and — before any user funds — entity, counsel, professional audit.
+**Contracts** (`src/`):
+- `LoanVault` — loan lifecycle, both flavors (fixed-FLR / fixed-dollar), the
+  dual-cap credit line, floating pass-rate interest, maturity + dead-stream
+  defaults, settlement-only seizure, lender-position transfer.
+- `PassLedgerOracle` — trusted `post()` lane (pass counts, liveness) **and** a
+  trustless `postWithProof()` lane that verifies rewards against the Merkle
+  root Flare's FlareSystemsManager signs on-chain. Keeper redundancy via
+  backup posters.
+- `MarginEscrow` — per-loan WFLR collateral, delegated back to the borrower,
+  self-enrolling its own reward claims.
+- `RewardCollector` — per-loan reward mailbox; wraps and routes to the loan.
+- `BorrowerAccount` — the v2 claim-binding account: bound to a loan it can move
+  value only to that loan's collector.
 
-`SPEC-V1.md` is the build spec; `FOUNDATIONS-FROM-DEBTDAO-AUDIT.md` is the
-security rulebook every contract must satisfy.
+## Read this in order
 
-## Repo rules
+| Doc | What it is |
+|---|---|
+| `HOW-IT-WORKS.md` | Plain-language, layer-by-layer explainer + the gaps register (the honest what's-wrong list) |
+| `WALKTHROUGH.md` | 8-step guided tour: a view, a verified command, and the meaning per step |
+| `TOMORROW-SESSION.md` | Turnkey plan for a live self-lending test |
+| `SELF-LEND-RUNBOOK.md` | Drive a real-flow loan yourself on testnet |
+| `DEPLOYMENTS.md` | Every live Coston2 address + the wei-exact numbers |
+| `FOUNDATIONS-FROM-DEBTDAO-AUDIT.md` | The security rulebook every contract satisfies |
+| `SPEC-V1.md` | Original v1 build spec (historical; see the header note) |
+| `research/` | Sourced deep-dives: Merkle oracle, real-claim runbook, P-chain multisig bond |
 
-1. Every security rule in `FOUNDATIONS-FROM-DEBTDAO-AUDIT.md` maps to at least
-   one test. A rule without its failing case is not implemented.
-2. Each check ships with its failing test in the same commit.
-3. No user funds touch anything before: entity, counsel, professional audit.
-4. This repo is private until Milestone 1 completes.
+## Run the tests
 
-## Toolchain
-
-Foundry (`forge build`, `forge test`). Solidity, fixed pragma.
-
-## The app (read-only testnet explorer)
-
-`app/` is a zero-backend dApp: live Coston2 reads over the public RPC
-(vault policy, every loan, the pass ledger) plus a loan designer that runs
-the exact TermsLib math in the browser against the live FtsoV2 price. Serve
-it statically:
-
+```bash
+forge test                              # 106 tests
+forge test --match-contract ForkIntegration   # against real Coston2 (needs the coston2 RPC alias)
 ```
-python3 -m http.server 8777 --directory app
+
+## The app (live testnet dApp)
+
+`app/` is a zero-backend dApp: live Coston2 reads (vault policy, every loan,
+the pass ledger, the reward Merkle roots) + a loan designer that runs the exact
+TermsLib math against the live FtsoV2 price + a wallet-connect **Repay** action.
+
+```bash
+python3 -m http.server 8777 --directory app   # then open http://localhost:8777
 ```
 
-then open http://localhost:8777. Read-only by design — transaction signing
-(wallet connect) is the next milestone; no keys ever touch the page.
 `app/ethers.umd.min.js` is vendored (gitignored); re-fetch from
 cdn.jsdelivr.net/npm/ethers@6 if missing.
+
+## Drive a real loan yourself (testnet)
+
+See `SELF-LEND-RUNBOOK.md`. One wallet plays both lender and borrower:
+
+```bash
+SELF_PK=0x<throwaway-testnet-key> forge script script/SelfLend.s.sol \
+  --rpc-url coston2 --broadcast --gas-estimate-multiplier 300 --slow
+```
+
+## Non-negotiable rules
+
+1. Every rule in `FOUNDATIONS-FROM-DEBTDAO-AUDIT.md` maps to at least one test;
+   a check ships with its failing case in the same commit.
+2. **No user funds before entity + counsel + professional audit.** Two AI
+   reviews are not that audit.
+3. Tributary is a separate venture from the CashLab validator — its own entity,
+   brand, repo. The validator's operations always preempt.
