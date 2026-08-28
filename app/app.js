@@ -6,8 +6,8 @@
 const RPC = "https://coston2-api.flare.network/ext/C/rpc";
 const EXPLORER = "https://coston2-explorer.flare.network";
 const A = {
-  vault:  "0x8Ad5f9654de710426985Ddc0696Fa2663D3c2Fe4",
-  oracle: "0x0a124dfA88Bd463354B4C4D2E50C5F91FdAA165F",
+  vault:  "0xe7ec100ea45af3586052E435006B983343dcd550", // Daman's v4 self-lend vault (2026-08-28)
+  oracle: "0x444D6680107F9F0D5d08F07e73e1A4028c74a614",
   wnat:   "0xC67DCE33D7A8efA5FfEB961899C73fe01bCe9273",
   ftso:   "0xC4e9c78EA53db782E28f28Fdf80BaF59336B304d",
   fsm:    "0xA90Db6D10F856799b10ef2A77EBCbF460aC71e52",

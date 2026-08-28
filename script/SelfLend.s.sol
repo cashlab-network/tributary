@@ -84,7 +84,7 @@ contract SelfLend is Script {
 
         // 4. borrower leg: accept, wrap margin + a repayment buffer, approve
         vault.accept(id);
-        wnat.deposit{value: marginFlr + 60 ether}(); // margin + repay buffer
+        wnat.deposit{value: marginFlr + 20 ether}(); // margin + repay buffer
         wnat.approve(address(vault), type(uint256).max);
 
         // 5. fund (lender) + margin + draw (borrower) — all you
@@ -94,9 +94,9 @@ contract SelfLend is Script {
         console2.log("DRAWN. your USDT0 balance now:", IERC20(USDT0).balanceOf(me));
         console2.log("outstanding (USD 6dp):", vault.getLoan(id).outstanding);
 
-        // 6. repay in FLR valued at the live FtsoV2 price (~46 FLR clears
-        //    $0.30); excess over the debt returns to you as change
-        vault.repay(id, 60 ether);
+        // 6. repay in FLR valued at the live FtsoV2 price; excess over the
+        //    debt returns to you as change
+        vault.repay(id, 20 ether);
         console2.log("after one repayment, outstanding (USD 6dp):", vault.getLoan(id).outstanding);
         console2.log("loan status (3=Drawn,6=Repaid):", vault.statusOf(id));
         vm.stopBroadcast();
