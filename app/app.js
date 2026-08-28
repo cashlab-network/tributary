@@ -24,7 +24,10 @@ const VAULT_ABI = [
   "function deadEpochsToTrigger() view returns (uint32)",
   "function gracePeriod() view returns (uint64)",
   "function maxPriceDeviationBps() view returns (uint16)",
-  "function getLoan(uint256) view returns (tuple(address borrower,address lender,bool fixedDollar,uint256 principalUsd,uint256 debt,uint256 outstanding,uint256 requiredMargin,uint256 defaultFee,uint256 benchmarkBps,uint64 lastAccrualEpoch,uint64 maturesAtEpoch,uint64 graceEndsAt,uint16 termEpochs,bool funded,address escrow,address collector,address streamProvider,bytes20 stakeNodeId,uint256 minStake,uint8 status))",
+  // NOTE: this tuple matches the DEPLOYED vault (0xe7ec, 2026-08-28 morning).
+  // Later contract versions add streamProvider/stakeNodeId/minStake — update
+  // this fragment when pointing at a vault deployed from newer source.
+  "function getLoan(uint256) view returns (tuple(address borrower,address lender,bool fixedDollar,uint256 principalUsd,uint256 debt,uint256 outstanding,uint256 requiredMargin,uint256 defaultFee,uint256 benchmarkBps,uint64 lastAccrualEpoch,uint64 maturesAtEpoch,uint64 graceEndsAt,uint16 termEpochs,bool funded,address escrow,address collector,uint8 status))",
 ];
 const ORACLE_ABI = [
   "function latest(address) view returns (tuple(uint64 epochId,uint192 trailingRewardPerEpoch,uint32 passCount,uint32 settledEpochs,uint32 deadStreak))",
@@ -161,12 +164,17 @@ function renderLoan(id, L) {
   const debtStr = fd ? fmtUsd6(debt) : fmtFlr(debt) + " FLR";
   const outStr = fd ? fmtUsd6(outstanding) : fmtFlr(outstanding) + " FLR";
   const rate = rateBps(BigInt(L.benchmarkBps), 3n); // display at 3-pass floor; live passes vary
+  const ZERO20 = "0x0000000000000000000000000000000000000000";
+  // defensive: these fields exist only on vaults deployed from newer source
+  const streamMode = "streamProvider" in L && L.streamProvider && L.streamProvider !== ZERO20;
+  const stakedMode = "stakeNodeId" in L && L.stakeNodeId && L.stakeNodeId !== ZERO20;
+  const modeTag = stakedMode ? " · stake-committed" : streamMode ? " · self-repaying collateral" : "";
   return `<div class="loan">
     <div class="loan-head">
       <span class="loan-id">Loan #${id}</span>
       <span class="pill ${sClass}">${sName}</span>
     </div>
-    <div class="flavor">${fd ? "◈ fixed-dollar" : "◇ fixed-FLR"} · benchmark ${L.benchmarkBps} bps · ${L.termEpochs} epochs</div>
+    <div class="flavor">${fd ? "◈ fixed-dollar" : "◇ fixed-FLR"}${modeTag} · benchmark ${L.benchmarkBps} bps · ${L.termEpochs} epochs</div>
     <div class="rows">
       <div class="row"><span class="l">Advanced</span><span class="r">${fmtUsd6(BigInt(L.principalUsd))}</span></div>
       <div class="row"><span class="l">Debt</span><span class="r">${debtStr}</span></div>

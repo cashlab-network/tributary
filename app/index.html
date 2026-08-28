@@ -129,7 +129,8 @@ td{padding:.35rem .5rem;border-bottom:1px solid var(--line);font-family:"IBM Ple
     <b>Live:</b> this is a <b>v4 vault carrying every security fix</b>, deployed and driven
     end-to-end by a real wallet on 2026-08-28 — a full self-lending loan (offer → draw →
     repaid). The contracts survived three independent adversarial reviews (all findings fixed)
-    and pass 109 tests. Still testnet, throwaway key, faucet tokens — no real value.
+    and pass 114 tests, including both loan types and both borrower doors (staked +
+    escrow-locked delegation). Still testnet, throwaway key, faucet tokens — no real value.
   </div>
 
   <p class="eyebrow">Live protocol</p>
@@ -168,7 +169,7 @@ td{padding:.35rem .5rem;border-bottom:1px solid var(--line);font-family:"IBM Ple
       live FLR/USD price. Nothing is sent anywhere.</p>
       <div class="panel">
         <div class="grid2" style="gap:.6rem">
-          <div><label>Flavor</label>
+          <div><label>Loan type</label>
             <select id="c-flavor"><option value="flr">Fixed-FLR</option><option value="usd">Fixed-dollar</option></select></div>
           <div><label>Passes held (0–3)</label>
             <input id="c-passes" type="number" min="0" max="3" value="3"></div>
