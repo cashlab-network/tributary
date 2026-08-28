@@ -146,6 +146,51 @@ contract ForkIntegrationTest is Test {
         assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Repaid));
     }
 
+    // the SelfLend pattern: ONE wallet is both lender and borrower, with real
+    // USDT0 (via deal) — validates script/SelfLend.s.sol before a real run.
+    function test_fork_selfLend_oneWalletBothParties() public {
+        if (!forked) return;
+        address me = makeAddr("selfLender");
+        deal(address(usd), me, 5e6); // stand-in for faucet USDT0 (mock usd here)
+        vm.deal(me, 1_000 ether); // C2FLR for margin + wrap
+
+        vm.startPrank(me);
+        oracle = new PassLedgerOracle(me, IFlareContractRegistry(REGISTRY));
+        LoanVault v = new LoanVault(
+            LoanVault.Config({
+                usd: IERC20(address(usd)),
+                wnat: wnat,
+                oracle: oracle,
+                claimSetupManager: CSM,
+                keeperExecutor: me,
+                epochDurationSeconds: 21_600,
+                ftso: IFtsoV2(FTSOV2),
+                flrUsdFeedId: FLR_USD,
+                maxPriceDeviationBps: 0,
+                minSettledEpochs: 10,
+                deadEpochsToTrigger: 4,
+                gracePeriod: 7 days,
+                maxPriceAge: 365 days,
+                requireProvenTrailing: false
+            })
+        );
+        oracle.post(me, 1000, 100 ether, 3, 20, true);
+        usd.approve(address(v), type(uint256).max);
+        // $1 debt needs margin worth ~$2 => ~400 FLR at the real ~$0.0065 price
+        uint256 id = v.offer(me, true, 1e6, 1e6, 400 ether, 0.1e6, 500, 4);
+        v.accept(id);
+        wnat.deposit{value: 600 ether}(); // 400 margin + 200 repay buffer
+        wnat.approve(address(v), type(uint256).max);
+        v.fund(id);
+        v.postMargin(id); // takes 400, leaves 200 WFLR
+        v.draw(id);
+        assertEq(usd.balanceOf(me), 5e6); // 5 held - 1 lent + 1 borrowed back = 5
+        // repay the $1 debt in FLR at the real price (~154 FLR)
+        v.repay(id, 200 ether);
+        vm.stopPrank();
+        assertEq(uint8(v.getLoan(id).status), uint8(LoanVault.Status.Repaid));
+    }
+
     // default -> settle, and a lender-position transfer mid-loan
     function test_fork_defaultAndLenderTransfer() public {
         if (!forked) return;
