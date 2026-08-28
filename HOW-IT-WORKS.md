@@ -217,7 +217,7 @@ number in the offer, not derived on-chain. A dishonest pair could consent to
 a nonsense rate — fine between consenting adults, but the marketplace UI
 must surface the real benchmark.
 
-**G8 · FIXED same day — the fixed-dollar flavor is built and PROVEN LIVE:**
+**G8 · FIXED same day — the fixed-dollar loan type is built and PROVEN LIVE:**
 a $0.05 loan in real USDT0 repaid in FLR valued by the real FtsoV2; the
 lender received exactly $0.05 worth (7.4626 WFLR at the live price),
 conservation wei-exact. Borrower keeps upside by construction (tested:
@@ -293,8 +293,9 @@ Fixed: the proven epochs must form a **contiguous window** of a minimum length
 or the trailing is zero, so you can't prove only your good epochs. Regression
 tests cover single-peak→0, gap→0, and full-window→honest-average.
 
-Three AI reviews, every finding fixed — but that is still not a professional
-human audit, which stays the hard gate before any real value.
+Three independent adversarial AI red-team rounds — High/Medium findings fixed,
+low-severity residuals documented — but that is still not a professional human
+audit, which stays the hard gate before any real value.
 
 ## A bonus finding: self-bond collateral may need no Flare change
 
@@ -332,9 +333,9 @@ accrues only for epochs that actually pass; full repayment releases margin
 immediately.
 
 **Do you repay the agreed FLR amount regardless of price?** Only in the
-fixed-FLR flavor — that is the forward-sale deal (coins locked at day-one
+fixed-FLR loan type — that is the forward-sale deal (coins locked at day-one
 price, lender keeps upside, borrower gets the cheapest rate). The fixed-dollar
-flavor owes dollars, repaid in FLR valued at the live oracle price at each
+loan type owes dollars, repaid in FLR valued at the live oracle price at each
 payment (borrower keeps upside, higher rate).
 
 **Open consideration:** a lender pricing for a full term can be repaid early
@@ -387,7 +388,7 @@ Trustless per-delegator underwriting: future work.
 **Framing rule (tax):** never market this as tax avoidance. "Spend without
 selling your stack" is true and safe everywhere; staking/validator rewards are
 generally ordinary income when earned regardless of what repays the loan.
-Real tax treatment (esp. the fixed-FLR forward-sale flavor) is a question for
+Real tax treatment (esp. the fixed-FLR forward-sale loan type) is a question for
 licensed counsel, already in the roadmap before any real funds.
 
 ## Two doors, one rule: "we only lend against streams that can't run away" (2026-08-28)
@@ -413,5 +414,5 @@ committed streams, and the commitment must be on-chain-visible. Built:
   => ineligible. Clean story instead of a haircut tier.
 
 Rate for a delegator inherits from the provider's pass record (delegate to a
-3-pass provider, get the 3-pass rate). 114 tests. StakedLoan.t.sol +
+3-pass provider, get the 3-pass rate). 118 tests (114 local + 4 fork). StakedLoan.t.sol +
 DelegatorLoan.t.sol.

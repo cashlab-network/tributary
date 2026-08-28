@@ -15,13 +15,14 @@ Contracts hold the funds. Code enforces the terms. Tributary is the venue,
 
 ## Status (2026-08-27)
 
-Both loan flavors built and live on Coston2. **106 tests**, including a
-fork-integration suite against the real Coston2 WNat + FtsoV2. **Two
-independent adversarial security reviews**, every finding fixed. Not yet
-audited by a professional human — that is the gate before any real value.
+Both loan types built and live on Coston2. **118 tests** (114 local + 4
+Coston2 fork-integration against the real WNat + FtsoV2). **Three independent
+adversarial AI red-team rounds** — High/Medium findings fixed, low-severity
+residuals documented. Not yet audited by a professional human — that is the
+gate before any real value.
 
 **Contracts** (`src/`):
-- `LoanVault` — loan lifecycle, both flavors (fixed-FLR / fixed-dollar), the
+- `LoanVault` — loan lifecycle, both loan types (fixed-FLR / fixed-dollar), the
   dual-cap credit line, floating pass-rate interest, maturity + dead-stream
   defaults, settlement-only seizure, lender-position transfer.
 - `PassLedgerOracle` — trusted `post()` lane (pass counts, liveness) **and** a
@@ -50,7 +51,7 @@ audited by a professional human — that is the gate before any real value.
 ## Run the tests
 
 ```bash
-forge test                              # 106 tests
+forge test                              # 118 tests
 forge test --match-contract ForkIntegration   # against real Coston2 (needs the coston2 RPC alias)
 ```
 
@@ -80,7 +81,7 @@ SELF_PK=0x<throwaway-testnet-key> forge script script/SelfLend.s.sol \
 
 1. Every rule in `FOUNDATIONS-FROM-DEBTDAO-AUDIT.md` maps to at least one test;
    a check ships with its failing case in the same commit.
-2. **No user funds before entity + counsel + professional audit.** Two AI
-   reviews are not that audit.
+2. **No user funds before entity + counsel + professional audit.** Three
+   independent AI red-team reviews are not that audit.
 3. Tributary is a separate venture from the CashLab validator — its own entity,
    brand, repo. The validator's operations always preempt.
