@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Script, console2} from "forge-std/Script.sol";
 import {LoanVault} from "../src/LoanVault.sol";
 import {RewardCollector} from "../src/RewardCollector.sol";
-import {PassLedgerOracle} from "../src/PassLedgerOracle.sol";
+import {PassLedgerOracle, IFlareContractRegistry} from "../src/PassLedgerOracle.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IWNat} from "../src/interfaces/IWNat.sol";
 import {IFtsoV2} from "../src/interfaces/IFtsoV2.sol";
@@ -51,7 +51,8 @@ contract V3 is Script {
         console2.log("real Coston2 reward epoch:", epoch);
 
         vm.startBroadcast(deployerPk);
-        PassLedgerOracle oracle = new PassLedgerOracle(deployer);
+        PassLedgerOracle oracle =
+            new PassLedgerOracle(deployer, IFlareContractRegistry(0xaD67FE66660Fb8dFE9d6b1b4240d8650e30F6019));
         LoanVault vault = new LoanVault(
             LoanVault.Config({
                 usd: IERC20(USDT0),

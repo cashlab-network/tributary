@@ -78,6 +78,35 @@ contract MockFtso {
     }
 }
 
+/// Minimal FlareSystemsManager: holds signed reward roots for the trustless
+/// oracle lane.
+contract MockFSM {
+    mapping(uint256 => bytes32) public roots;
+
+    function setRoot(uint256 epochId, bytes32 root) external {
+        roots[epochId] = root;
+    }
+
+    function rewardsHash(uint256 epochId) external view returns (bytes32) {
+        return roots[epochId];
+    }
+}
+
+/// Minimal FlareContractRegistry resolving only "FlareSystemsManager".
+contract MockRegistry {
+    address public fsm;
+
+    constructor(address fsm_) {
+        fsm = fsm_;
+    }
+
+    function getContractAddressByName(string calldata name) external view returns (address) {
+        // return fsm for any name in tests
+        name;
+        return fsm;
+    }
+}
+
 /// Records ClaimSetupManager enrollments per calling account.
 contract MockCSM {
     mapping(address => address) public executorOf;

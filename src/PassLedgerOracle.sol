@@ -1,15 +1,28 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.30;
 
+interface IFlareContractRegistry {
+    function getContractAddressByName(string calldata name) external view returns (address);
+}
+
+interface IFlareSystemsManager {
+    function rewardsHash(uint256 rewardEpochId) external view returns (bytes32);
+}
+
 /// @title PassLedgerOracle — the chain-published performance record, on-chain
-/// @notice v1 trust model: a poster role publishes, per borrower per reward
-///         epoch, values derived from Flare's PUBLIC per-epoch reward and
-///         pass files — trailing average reward, FIP.10 pass count, settled
-///         epoch count, and whether the stream was alive that epoch. Every
-///         posted value is verifiable by anyone against the published files;
-///         the poster can be caught lying but v1 does not prevent it
-///         (trust-minimization is a later stage, stated openly in the spec).
-///         Posts are append-only and strictly epoch-monotonic per borrower.
+/// @notice TWO trust lanes:
+///  - `post()` (TRUSTED): a poster role copies pass counts, liveness, and a
+///    trailing-reward figure from Flare's published files. The poster can be
+///    caught lying but this lane does not prevent it.
+///  - `postWithProof()` (TRUSTLESS): anyone submits a Flare reward claim leaf
+///    plus its Merkle proof; the oracle verifies it against the root Flare's
+///    own FlareSystemsManager has signed on-chain. A lying poster is
+///    IMPOSSIBLE for a proven reward amount — the proof, not the caller, is
+///    the authority. FEE claims are a provider's own income; that is the
+///    number underwriting should trust. (FIP.10 pass counts have no on-chain
+///    commitment and necessarily stay in the trusted lane — see
+///    research/MERKLE-ORACLE-RESEARCH.md.)
+///  Posts are append-only and strictly epoch-monotonic per borrower.
 contract PassLedgerOracle {
     struct Record {
         uint64 epochId; // Flare reward epoch of the latest post
@@ -19,9 +32,30 @@ contract PassLedgerOracle {
         uint32 deadStreak; // consecutive epochs with a dead stream
     }
 
+    /// Mirrors flare-smart-contracts-v2 RewardsV2Interface.ClaimType.
+    enum ClaimType {
+        DIRECT,
+        FEE,
+        WNAT,
+        MIRROR,
+        CCHAIN
+    }
+
+    /// Mirrors RewardsV2Interface.RewardClaim EXACTLY — field order and types
+    /// are load-bearing: the tree leaf is keccak256(abi.encode(claim)).
+    struct RewardClaim {
+        uint24 rewardEpochId;
+        bytes20 beneficiary; // c-chain address, or node id for MIRROR
+        uint120 amount; // wei
+        ClaimType claimType;
+    }
+
     error NotPoster();
     error EpochNotAfterLast(uint64 posted, uint64 last);
     error ZeroAddress();
+    error RootNotSigned(uint24 epochId);
+    error InvalidProof();
+    error AlreadyProven();
 
     event Posted(
         address indexed borrower,
@@ -32,13 +66,33 @@ contract PassLedgerOracle {
         bool alive
     );
     event PosterChanged(address indexed poster);
+    event RewardProven(
+        bytes20 indexed beneficiary, uint24 indexed epochId, ClaimType claimType, uint120 amount
+    );
 
     address public poster;
     mapping(address => Record) internal records;
 
-    constructor(address poster_) {
+    // Trustless lane: proven reward amounts keyed by (beneficiary, epoch, type).
+    struct Proven {
+        uint120 amount;
+        bool proven;
+    }
+
+    mapping(bytes20 => mapping(uint24 => mapping(ClaimType => Proven))) public provenRewards;
+    // Running total + count of proven FEE claims per beneficiary -> a trailing
+    // average that is fully trustless.
+    mapping(bytes20 => uint256) public provenFeeSum;
+    mapping(bytes20 => uint256) public provenFeeCount;
+
+    /// Same address on every Flare network; the FSM is resolved through it at
+    /// call time because Flare redeploys implementations behind the registry.
+    IFlareContractRegistry public immutable registry;
+
+    constructor(address poster_, IFlareContractRegistry registry_) {
         if (poster_ == address(0)) revert ZeroAddress();
         poster = poster_;
+        registry = registry_; // may be address(0) in pure unit tests
         emit PosterChanged(poster_);
     }
 
@@ -75,5 +129,54 @@ contract PassLedgerOracle {
 
     function latest(address borrower) external view returns (Record memory) {
         return records[borrower];
+    }
+
+    // ---------------------------------------------------- trustless lane (G1)
+
+    /// @notice Prove a Flare reward claim against the root FlareSystemsManager
+    ///         has signed on-chain. Permissionless — the proof is the
+    ///         authority, not msg.sender. The keeper lifts the leaf `body` and
+    ///         `merkleProof` verbatim from Flare's published
+    ///         reward-distribution-data.json. FEE claims accumulate into a
+    ///         trustless trailing average.
+    function postWithProof(RewardClaim calldata claim, bytes32[] calldata merkleProof) external {
+        bytes32 root =
+            IFlareSystemsManager(registry.getContractAddressByName("FlareSystemsManager")).rewardsHash(claim.rewardEpochId);
+        if (root == bytes32(0)) revert RootNotSigned(claim.rewardEpochId);
+
+        // EXACTLY RewardManager's leaf: keccak256(abi.encode(struct)), verified
+        // with OpenZeppelin-style commutative sorted-pair keccak.
+        bytes32 leaf = keccak256(abi.encode(claim));
+        if (!_verify(merkleProof, root, leaf)) revert InvalidProof();
+
+        Proven storage p = provenRewards[claim.beneficiary][claim.rewardEpochId][claim.claimType];
+        if (p.proven) revert AlreadyProven();
+        p.amount = claim.amount;
+        p.proven = true;
+
+        if (claim.claimType == ClaimType.FEE) {
+            provenFeeSum[claim.beneficiary] += claim.amount;
+            provenFeeCount[claim.beneficiary] += 1;
+        }
+        emit RewardProven(claim.beneficiary, claim.rewardEpochId, claim.claimType, claim.amount);
+    }
+
+    /// @notice Trustless trailing average of proven FEE income (wei/epoch), 0
+    ///         if none proven yet. This is the number a future vault can
+    ///         underwrite on WITHOUT trusting the poster.
+    function provenTrailingFee(bytes20 beneficiary) external view returns (uint256) {
+        uint256 n = provenFeeCount[beneficiary];
+        return n == 0 ? 0 : provenFeeSum[beneficiary] / n;
+    }
+
+    /// Commutative Merkle verification (OpenZeppelin MerkleProof semantics):
+    /// keccak256 of the sorted concatenation at each level.
+    function _verify(bytes32[] calldata proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
+        bytes32 h = leaf;
+        for (uint256 i; i < proof.length; i++) {
+            bytes32 p = proof[i];
+            h = h <= p ? keccak256(abi.encodePacked(h, p)) : keccak256(abi.encodePacked(p, h));
+        }
+        return h == root;
     }
 }

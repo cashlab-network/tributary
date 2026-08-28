@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {LoanVault} from "../src/LoanVault.sol";
 import {MarginEscrow} from "../src/MarginEscrow.sol";
 import {RewardCollector} from "../src/RewardCollector.sol";
-import {PassLedgerOracle} from "../src/PassLedgerOracle.sol";
+import {PassLedgerOracle, IFlareContractRegistry} from "../src/PassLedgerOracle.sol";
 import {TermsLib} from "../src/TermsLib.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IWNat} from "../src/interfaces/IWNat.sol";
@@ -44,7 +44,7 @@ contract LoanVaultTestBase is Test {
         wnat = new MockWNat();
         csm = new MockCSM();
         ftso = new MockFtso();
-        oracle = new PassLedgerOracle(address(this));
+        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(0)));
         vault = new LoanVault(_config(0)); // band off in the base suite
 
         usd.mint(lender, PRINCIPAL_USD);
@@ -578,7 +578,7 @@ contract PassLedgerOracleTest is Test {
     address validator = makeAddr("validator");
 
     function setUp() public {
-        oracle = new PassLedgerOracle(address(this));
+        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(0)));
     }
 
     function test_post_byNonPosterReverts() public {
