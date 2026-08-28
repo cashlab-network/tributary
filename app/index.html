@@ -186,6 +186,14 @@ td{padding:.35rem .5rem;border-bottom:1px solid var(--line);font-family:"IBM Ple
     </div>
   </div>
 
+  <p class="eyebrow" style="margin-top:2.6rem">Trustless underwriting (G1)</p>
+  <h2>The reward roots the oracle verifies against</h2>
+  <p class="section-sub">These are the Merkle roots Flare's own FlareSystemsManager has signed
+  on-chain, read live. <code>postWithProof</code> proves a validator's reward against exactly
+  these — so a lying oracle poster is impossible for a proven amount. A zero root means that
+  epoch isn't signed yet.</p>
+  <div class="stats" id="roots"><div class="stat"><div class="k">loading</div><div class="v">…</div></div></div>
+
   <div class="foot">
     Tributary is a non-custodial validator-credit marketplace. This page is a read-only explorer
     for the Coston2 testnet deployment — throwaway keys, faucet tokens, no real value.

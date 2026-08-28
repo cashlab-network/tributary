@@ -30,7 +30,10 @@ const ORACLE_ABI = [
   "function latest(address) view returns (tuple(uint64 epochId,uint192 trailingRewardPerEpoch,uint32 passCount,uint32 settledEpochs,uint32 deadStreak))",
 ];
 const FTSO_ABI = ["function getFeedById(bytes21) view returns (uint256,int8,uint64)"];
-const FSM_ABI = ["function getCurrentRewardEpochId() view returns (uint24)"];
+const FSM_ABI = [
+  "function getCurrentRewardEpochId() view returns (uint24)",
+  "function rewardsHash(uint256) view returns (bytes32)",
+];
 
 const STATUS = ["None","Offered","Open","Drawn","Grace","Settled","Repaid","Closed"];
 const STATUS_CLASS = ["closed","offered","open","drawn","grace","settled","repaid","closed"];
@@ -181,6 +184,25 @@ function renderLoan(id, L) {
   </div>`;
 }
 
+async function loadRoots() {
+  const box = el("roots");
+  try {
+    const cur = Number(await fsm.getCurrentRewardEpochId());
+    const epochs = [cur, cur - 1, cur - 2, cur - 3, cur - 4];
+    const roots = await Promise.all(epochs.map((e) => fsm.rewardsHash(e).catch(() => null)));
+    const ZERO = "0x" + "0".repeat(64);
+    box.innerHTML = epochs.map((e, i) => {
+      const r = roots[i];
+      const signed = r && r !== ZERO;
+      const short = signed ? r.slice(0, 10) + "…" + r.slice(-6) : "unsigned";
+      return `<div class="stat"><div class="k">epoch ${e}${i === 0 ? " (current)" : ""}</div>
+        <div class="v" style="font-size:.8rem;color:${signed ? "var(--good)" : "var(--faint)"}">${short}</div></div>`;
+    }).join("");
+  } catch (e) {
+    box.innerHTML = `<div class="stat"><div class="k">roots</div><div class="v" style="font-size:.85rem">read failed</div></div>`;
+  }
+}
+
 async function lookupLedger() {
   const addr = el("lookup").value.trim();
   const out = el("ledger-out");
@@ -285,6 +307,7 @@ async function boot() {
     currentEpochSeconds = await vault.epochDurationSeconds();
     const count = await loadProtocol();
     await loadLoans(count);
+    loadRoots(); // fire-and-forget; not load-bearing for the rest
     // prefill the ledger lookup with loan 1's borrower for a one-click demo
     try { const L1 = await vault.getLoan(1n); el("lookup").value = L1.borrower; } catch (_) {}
   } catch (e) {
