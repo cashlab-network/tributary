@@ -67,7 +67,8 @@ contract V3 is Script {
                 minSettledEpochs: 10,
                 deadEpochsToTrigger: 4,
                 gracePeriod: 7 days,
-                maxPriceAge: 1 hours
+                maxPriceAge: 1 hours,
+                requireProvenTrailing: false
             })
         );
         oracle.post(borrower, epoch, TRAILING, 3, 20, true);

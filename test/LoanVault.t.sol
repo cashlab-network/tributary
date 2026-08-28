@@ -71,7 +71,8 @@ contract LoanVaultTestBase is Test {
             minSettledEpochs: 10,
             deadEpochsToTrigger: 4,
             gracePeriod: 7 days,
-            maxPriceAge: 1 hours
+            maxPriceAge: 1 hours,
+            requireProvenTrailing: false
         });
     }
 

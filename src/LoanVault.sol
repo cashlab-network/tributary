@@ -57,6 +57,8 @@ contract LoanVault {
         uint32 deadEpochsToTrigger; // policy: consecutive dead epochs
         uint64 gracePeriod; // policy: cure window length
         uint64 maxPriceAge; // staleness bound on FTSO reads
+        bool requireProvenTrailing; // G1: size the line off Merkle-proven FEE
+            // rewards (trustless) instead of the trusted poster's figure
     }
 
     struct Loan {
@@ -127,6 +129,7 @@ contract LoanVault {
     uint32 public immutable deadEpochsToTrigger;
     uint64 public immutable gracePeriod;
     uint64 public immutable maxPriceAge;
+    bool public immutable requireProvenTrailing;
 
     uint256 public nextId = 1; // 0 is never a valid id
     mapping(uint256 => Loan) internal loans;
@@ -167,6 +170,7 @@ contract LoanVault {
         deadEpochsToTrigger = cfg.deadEpochsToTrigger;
         gracePeriod = cfg.gracePeriod;
         maxPriceAge = cfg.maxPriceAge == 0 ? 1 hours : cfg.maxPriceAge;
+        requireProvenTrailing = cfg.requireProvenTrailing;
     }
 
     // ---------------------------------------------------------------- consent
@@ -214,7 +218,16 @@ contract LoanVault {
         if (rec.settledEpochs < minSettledEpochs) revert InsufficientHistory(rec.settledEpochs, minSettledEpochs);
         if (rec.deadStreak != 0) revert StreamNotLive(rec.deadStreak);
 
-        uint256 lineFlr = TermsLib.creditLine(rec.trailingRewardPerEpoch, loan.termEpochs, loan.requiredMargin);
+        // Trailing reward source: the trusted poster's figure, OR (G1) the
+        // Merkle-proven FEE trailing keyed by the borrower's address as the
+        // claim beneficiary — trustless. If nothing is proven yet, this is 0
+        // and the credit line is 0, so the loan fails safe (can't borrow
+        // without provable history). Note: history/passes/liveness still come
+        // from the trusted lane (they have no on-chain commitment).
+        uint256 trailing = requireProvenTrailing
+            ? oracle.provenTrailingFee(bytes20(loan.borrower))
+            : rec.trailingRewardPerEpoch;
+        uint256 lineFlr = TermsLib.creditLine(trailing, loan.termEpochs, loan.requiredMargin);
         if (loan.fixedDollar) {
             // debt is USD: value the FLR-denominated line at the oracle price
             (uint256 v, uint8 d) = _price();
