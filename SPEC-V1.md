@@ -1,5 +1,13 @@
 # Tributary v1 — Contract Spec (fixed-FLR flavor first)
 
+> **STATUS NOTE (2026-08-27, later same day):** the code has moved well past
+> this original v1 spec. Now built: BOTH flavors (fixed-FLR + fixed-dollar),
+> the trustless Merkle-proof oracle lane, maturity default, lender-position
+> transfer, keeper redundancy, and all four independent-security-review fixes.
+> **`HOW-IT-WORKS.md` is the current living document; `WALKTHROUGH.md` is the
+> guided tour; `DEPLOYMENTS.md` has the live addresses.** This file is kept as
+> the original build record.
+
 *Derived 2026-08-27 from the verified public design
 (PITCH-VALIDATOR-CREDIT v1.1) and the Debt DAO audit rulebook. Coston2 first.
 This spec is the source of truth for v1 code; change the spec before changing
