@@ -49,8 +49,11 @@ been attacked by **independent sessions told to refute, not review**:
   tests.
 - **Review 2** (fixes + new features): no new HIGH; 2 lower issues
   (selector-narrow approval fence; zero-collector bind) fixed.
-- **Review 3** (trustless-underwriting wiring): in progress at last write —
-  see the gaps register / commit log for its outcome.
+- **Review 3** (trustless-underwriting wiring): found 1 HIGH — the "proven
+  trailing" was cherry-pickable (prove only your peak epoch → 5.26x line
+  inflation, demonstrated by PoC). Fixed: the proven FEE epochs must form a
+  contiguous window of a minimum length, or the trailing is 0. Regression
+  tests added (single-peak→0, gap→0, full-window→honest average).
 
 These are AI reviews. **A professional human audit is still the gate before
 any real value** — that is the single most important thing this suite does

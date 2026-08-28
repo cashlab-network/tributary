@@ -280,9 +280,21 @@ found **no new HIGH** and confirmed the maturity math, grace accounting,
 `transferLender`, the Merkle verification, and backup-poster access control all
 held. Two lower issues, both now fixed: the approval fence caught only
 `approve` (now also `increaseAllowance`/`decreaseAllowance` — F1), and `bind`
-accepted a zero collector on a pre-accept loan (now rejected — F2). Three
-informational footguns are documented in NatSpec. Still: two AI reviews are not
-a professional human audit, which stays the hard gate before any real value.
+accepted a zero collector on a pre-accept loan (now rejected — F2).
+
+**A THIRD review** attacked the trustless-underwriting wiring specifically and
+found **1 HIGH**: the "proven trailing" figure was cherry-pickable — a borrower
+proving only their single peak reward epoch got a credit line sized off that
+peak, not their trailing income (PoC showed 5.26x inflation). This mattered
+because it defeated the exact income-based underwriting the feature exists to
+provide (the dual cap still limited a well-collateralized lender's exposure, so
+it was never a live drain — and the feature was off by default in every vault).
+Fixed: the proven epochs must form a **contiguous window** of a minimum length
+or the trailing is zero, so you can't prove only your good epochs. Regression
+tests cover single-peak→0, gap→0, and full-window→honest-average.
+
+Three AI reviews, every finding fixed — but that is still not a professional
+human audit, which stays the hard gate before any real value.
 
 ## A bonus finding: self-bond collateral may need no Flare change
 
