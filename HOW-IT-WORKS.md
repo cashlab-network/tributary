@@ -341,3 +341,13 @@ payment (borrower keeps upside, higher rate).
 and earn less interest than expected. If real lenders push back, add an
 OPTIONAL consented minimum-interest term (accrue at least N epochs' interest
 even if repaid sooner) — a per-loan choice, never a hidden penalty.
+
+**HELOC / revolving line? (Daman, 2026-08-28)** Decided: discrete loans that
+CHAIN, not a standing revolver. The pitch's "payoff and revolve" is preserved —
+margin releases at payoff and immediately backs the next loan — while a true
+draw/repay/redraw line would add committed-capital management, redraw
+repricing, and long-lived state (exactly the bug surface the reviews kept
+finding), for marginal borrower benefit. Serial loans also reprice at the
+CURRENT pass-rate each time, which is better underwriting than a stale line.
+If borrowers later want a tap-without-resigning line, build it post-audit as a
+wrapper over these loans, not a rewrite.
