@@ -8,6 +8,7 @@ import {PassLedgerOracle, IFlareContractRegistry} from "../src/PassLedgerOracle.
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IWNat} from "../src/interfaces/IWNat.sol";
 import {IFtsoV2} from "../src/interfaces/IFtsoV2.sol";
+import {IPChainStakeMirror} from "../src/interfaces/IPChainStakeMirror.sol";
 
 interface IFlareSystemsManager {
     function getCurrentRewardEpochId() external view returns (uint24);
@@ -62,6 +63,7 @@ contract V3 is Script {
                 keeperExecutor: deployer,
                 epochDurationSeconds: 21_600, // chain fact, verified via FSM
                 ftso: IFtsoV2(FTSOV2),
+                pchainMirror: IPChainStakeMirror(0xd2a1Bb23eB350814a30Dd6f9de78Bb2C8fdD9F1D),
                 flrUsdFeedId: FLR_USD,
                 maxPriceDeviationBps: 2_500, // ±25% pair sanity band
                 minSettledEpochs: 10,

@@ -8,6 +8,7 @@ import {PassLedgerOracle} from "./PassLedgerOracle.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 import {IWNat} from "./interfaces/IWNat.sol";
 import {IFtsoV2} from "./interfaces/IFtsoV2.sol";
+import {IPChainStakeMirror} from "./interfaces/IPChainStakeMirror.sol";
 
 /// @title LoanVault — Tributary loan lifecycle, both flavors
 /// @notice Loans are keyed by immutable id in a mapping; no invariant may
@@ -51,6 +52,7 @@ contract LoanVault {
         address keeperExecutor; // executor escrows authorize for claims
         uint256 epochDurationSeconds; // chain fact: FlareSystemsManager value
         IFtsoV2 ftso; // FLR/USD source (zero disables all price logic)
+        IPChainStakeMirror pchainMirror; // stake commitment checks (0 disables)
         bytes21 flrUsdFeedId;
         uint16 maxPriceDeviationBps; // fixed-FLR pair sanity band; 0 = off
         uint32 minSettledEpochs; // policy: history required to underwrite
@@ -82,6 +84,14 @@ contract LoanVault {
         /// for them); nonzero = self-contained delegator mode (escrow
         /// delegates to this provider and its earnings repay the loan).
         address streamProvider;
+        /// Tier A (staked loans): the P-chain node the borrower stakes to and
+        /// the minimum mirrored amount that must stay live. A P-chain stake
+        /// cannot exit early and the mirror drops it when it ends — so the
+        /// commitment rule is "your stake must outlive your debt": if the
+        /// mirror shows it gone/short while anything is owed, the default
+        /// clock starts. Zero nodeId = not a staked loan.
+        bytes20 stakeNodeId;
+        uint256 minStake;
         Status status;
     }
 
@@ -100,6 +110,7 @@ contract LoanVault {
     error StreamNotLive(uint32 deadStreak);
     error ExceedsCreditLine(uint256 debt, uint256 line);
     error TriggerNotMet(uint256 id);
+    error StakeCommitmentBroken(uint256 required, uint256 actual);
     error GraceNotExpired(uint256 id, uint64 endsAt);
     error PriceUnavailable(); // no FTSO configured for a flavor that needs it
     error StalePrice(uint64 timestamp);
@@ -127,6 +138,7 @@ contract LoanVault {
     address public immutable keeperExecutor;
     uint256 public immutable epochDurationSeconds;
     IFtsoV2 public immutable ftso;
+    IPChainStakeMirror public immutable pchainMirror;
     bytes21 public immutable flrUsdFeedId;
     uint16 public immutable maxPriceDeviationBps;
     uint32 public immutable minSettledEpochs;
@@ -168,6 +180,7 @@ contract LoanVault {
         keeperExecutor = cfg.keeperExecutor;
         epochDurationSeconds = cfg.epochDurationSeconds;
         ftso = cfg.ftso;
+        pchainMirror = cfg.pchainMirror;
         flrUsdFeedId = cfg.flrUsdFeedId;
         maxPriceDeviationBps = cfg.maxPriceDeviationBps;
         minSettledEpochs = cfg.minSettledEpochs;
@@ -223,6 +236,43 @@ contract LoanVault {
         );
     }
 
+    /// @notice TIER A — STAKED loans (the strongest commitment): the borrower
+    ///         has a live P-chain stake to `nodeId` of at least `minStake`,
+    ///         verified against Flare's PChainStakeMirror at accept. P-chain
+    ///         stakes cannot exit early and the mirror drops them when they
+    ///         end — so if the mirror ever shows the stake gone or short
+    ///         while anything is owed, the default clock starts (see trip()).
+    ///         "Your stake must outlive your debt."
+    function offerStaked(
+        address borrower,
+        bool fixedDollar,
+        uint256 principalUsd,
+        uint256 debt,
+        uint256 requiredMargin,
+        uint256 defaultFee,
+        uint256 benchmarkBps,
+        uint16 termEpochs,
+        bytes20 nodeId,
+        uint256 minStake
+    ) external returns (uint256 id) {
+        if (nodeId == bytes20(0) || minStake == 0) revert ZeroAmount();
+        if (address(pchainMirror) == address(0)) revert PriceUnavailable(); // mirror not configured
+        id = _createOffer(
+            borrower, fixedDollar, principalUsd, debt, requiredMargin, defaultFee, benchmarkBps, termEpochs, address(0)
+        );
+        loans[id].stakeNodeId = nodeId;
+        loans[id].minStake = minStake;
+    }
+
+    /// @dev Live mirrored stake from borrower to the loan's node (0 if none).
+    function _stakedAmount(Loan storage loan) internal view returns (uint256) {
+        (bytes20[] memory nodeIds, uint256[] memory amounts) = pchainMirror.stakesOf(loan.borrower);
+        for (uint256 i; i < nodeIds.length; i++) {
+            if (nodeIds[i] == loan.stakeNodeId) return amounts[i];
+        }
+        return 0;
+    }
+
     function _createOffer(
         address borrower,
         bool fixedDollar,
@@ -264,6 +314,12 @@ contract LoanVault {
         PassLedgerOracle.Record memory rec = oracle.latest(loan.borrower);
         if (rec.settledEpochs < minSettledEpochs) revert InsufficientHistory(rec.settledEpochs, minSettledEpochs);
         if (rec.deadStreak != 0) revert StreamNotLive(rec.deadStreak);
+
+        // Tier A staked loans: the committed stake must be live at origination
+        if (loan.stakeNodeId != bytes20(0)) {
+            uint256 staked = _stakedAmount(loan);
+            if (staked < loan.minStake) revert StakeCommitmentBroken(loan.minStake, staked);
+        }
 
         // Trailing reward source: the trusted poster's figure, OR (G1) the
         // Merkle-proven FEE trailing keyed by the borrower's address as the
@@ -484,7 +540,12 @@ contract LoanVault {
         PassLedgerOracle.Record memory rec = oracle.latest(loan.borrower);
         bool deadDefault = rec.deadStreak >= deadEpochsToTrigger;
         bool maturityDefault = rec.epochId >= loan.maturesAtEpoch && loan.outstanding > 0;
-        if (!deadDefault && !maturityDefault) revert TriggerNotMet(id);
+        // Tier A: "your stake must outlive your debt" — if the mirror shows
+        // the committed stake gone or short while anything is owed, that IS a
+        // default condition. Checkable by anyone, any second, on-chain.
+        bool stakeDefault = loan.stakeNodeId != bytes20(0) && loan.outstanding > 0
+            && _stakedAmount(loan) < loan.minStake;
+        if (!deadDefault && !maturityDefault && !stakeDefault) revert TriggerNotMet(id);
         accrue(id);
         loan.status = Status.Grace;
         loan.graceEndsAt = uint64(block.timestamp) + gracePeriod;

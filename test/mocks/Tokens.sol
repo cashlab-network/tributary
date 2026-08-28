@@ -146,3 +146,25 @@ contract FeeOnTransferToken is MockERC20 {
         return true;
     }
 }
+
+/// Settable P-chain stake mirror for Tier A tests.
+contract MockMirror {
+    mapping(address => bytes20[]) internal nodes;
+    mapping(address => uint256[]) internal amts;
+
+    function setStake(address owner, bytes20 nodeId, uint256 amount) external {
+        nodes[owner] = new bytes20[](1);
+        amts[owner] = new uint256[](1);
+        nodes[owner][0] = nodeId;
+        amts[owner][0] = amount;
+    }
+
+    function clearStakes(address owner) external {
+        delete nodes[owner];
+        delete amts[owner];
+    }
+
+    function stakesOf(address owner) external view returns (bytes20[] memory, uint256[] memory) {
+        return (nodes[owner], amts[owner]);
+    }
+}

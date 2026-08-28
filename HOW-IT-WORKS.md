@@ -389,3 +389,29 @@ selling your stack" is true and safe everywhere; staking/validator rewards are
 generally ordinary income when earned regardless of what repays the loan.
 Real tax treatment (esp. the fixed-FLR forward-sale flavor) is a question for
 licensed counsel, already in the roadmap before any real funds.
+
+## Two doors, one rule: "we only lend against streams that can't run away" (2026-08-28)
+
+Daman's call: NO free-floating/revocable delegation as a lending basis. Only
+committed streams, and the commitment must be on-chain-visible. Built:
+
+- **Door 1 — Validators / P-chain stakers (Tier A, `offerStaked`).** The
+  borrower has a live P-chain stake (read from Flare's PChainStakeMirror,
+  0xd2a1Bb23…9F1D on Coston2) of at least `minStake` to a specific node.
+  P-chain stakes cannot exit early and the mirror drops them at end, so the
+  rule is enforced by the chain: at accept the stake must be live; if the
+  mirror ever shows it gone/short while anything is owed, `trip()` starts the
+  default clock (anyone can call). "Your stake must outlive your debt."
+  Caveat: P-chain staking has real minimums — verify exact figures from Flare
+  docs before quoting; this tier is for larger holders.
+- **Door 2 — Escrow-locked delegation (`offerStream`).** The margin escrow
+  itself holds the WFLR and delegates it to an FTSO provider, routing its own
+  earnings to the loan's collector. The borrower CAN'T undelegate because the
+  escrow holds the stake — commitment by construction, no minimum size. The
+  everyday-holder door.
+- **Rejected — free-floating tokens outside delegation.** Revocable anytime
+  => ineligible. Clean story instead of a haircut tier.
+
+Rate for a delegator inherits from the provider's pass record (delegate to a
+3-pass provider, get the 3-pass rate). 114 tests. StakedLoan.t.sol +
+DelegatorLoan.t.sol.

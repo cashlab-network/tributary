@@ -10,7 +10,8 @@ import {TermsLib} from "../src/TermsLib.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IWNat} from "../src/interfaces/IWNat.sol";
 import {IFtsoV2} from "../src/interfaces/IFtsoV2.sol";
-import {MockERC20, MockWNat, MockCSM, MockFtso, FeeOnTransferToken} from "./mocks/Tokens.sol";
+import {IPChainStakeMirror} from "../src/interfaces/IPChainStakeMirror.sol";
+import {MockERC20, MockWNat, MockCSM, MockFtso, MockMirror, FeeOnTransferToken} from "./mocks/Tokens.sol";
 
 contract LoanVaultTestBase is Test {
     LoanVault vault;
@@ -19,6 +20,7 @@ contract LoanVaultTestBase is Test {
     MockWNat wnat;
     MockCSM csm;
     MockFtso ftso;
+    MockMirror mirror;
 
     // Mainnet epoch length for unit tests; the chain value is read from
     // FlareSystemsManager at deploy time (Coston2: 21,600s).
@@ -44,6 +46,7 @@ contract LoanVaultTestBase is Test {
         wnat = new MockWNat();
         csm = new MockCSM();
         ftso = new MockFtso();
+        mirror = new MockMirror();
         oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(0)), 8);
         vault = new LoanVault(_config(0)); // band off in the base suite
 
@@ -66,6 +69,7 @@ contract LoanVaultTestBase is Test {
             keeperExecutor: keeper,
             epochDurationSeconds: EPOCH_SECONDS,
             ftso: IFtsoV2(address(ftso)),
+            pchainMirror: IPChainStakeMirror(address(mirror)),
             flrUsdFeedId: bytes21(uint168(1)),
             maxPriceDeviationBps: bandBps,
             minSettledEpochs: 10,

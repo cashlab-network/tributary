@@ -7,6 +7,7 @@ import {PassLedgerOracle, IFlareContractRegistry} from "../src/PassLedgerOracle.
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IWNat} from "../src/interfaces/IWNat.sol";
 import {IFtsoV2} from "../src/interfaces/IFtsoV2.sol";
+import {IPChainStakeMirror} from "../src/interfaces/IPChainStakeMirror.sol";
 import {MockERC20, MockWNat, MockCSM, MockFtso, MockFSM, MockRegistry} from "./mocks/Tokens.sol";
 
 /// G1 end-to-end: a vault configured `requireProvenTrailing` sizes the credit
@@ -50,6 +51,7 @@ contract ProvenUnderwritingTest is Test {
                 keeperExecutor: makeAddr("keeper"),
                 epochDurationSeconds: 302_400,
                 ftso: IFtsoV2(address(ftso)),
+                pchainMirror: IPChainStakeMirror(address(0)),
                 flrUsdFeedId: bytes21(uint168(1)),
                 maxPriceDeviationBps: 0,
                 minSettledEpochs: 10,
