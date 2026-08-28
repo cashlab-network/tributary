@@ -20,7 +20,7 @@ contract MerkleOracleTest is Test {
     function setUp() public {
         fsm = new MockFSM();
         registry = new MockRegistry(address(fsm));
-        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(registry)));
+        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(registry)), 1);
     }
 
     function _claim(uint120 amount, PassLedgerOracle.ClaimType t)

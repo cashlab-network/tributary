@@ -38,7 +38,8 @@ contract ProvenUnderwritingTest is Test {
         ftso = new MockFtso();
         fsm = new MockFSM();
         registry = new MockRegistry(address(fsm));
-        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(registry)));
+        // minTrailingWindow = 4: a nonzero trailing needs 4 contiguous proven epochs
+        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(registry)), 4);
 
         vault = new LoanVault(
             LoanVault.Config({
@@ -97,13 +98,14 @@ contract ProvenUnderwritingTest is Test {
     }
 
     function test_provenTrailing_sizesTheLine() public {
-        // prove two FEE epochs averaging 10,000 FLR -> line = 70% * 10k * 4 =
-        // 28,000 FLR (margin cap 50k doesn't bind)
-        _proveFee(5990, 8_000 ether);
-        _proveFee(5991, 12_000 ether);
+        // prove a CONTIGUOUS 4-epoch window averaging 10,000 FLR -> line =
+        // 70% * 10k * 4 = 28,000 FLR (margin cap 50k doesn't bind)
+        _proveFee(5988, 8_000 ether);
+        _proveFee(5989, 12_000 ether);
+        _proveFee(5990, 9_000 ether);
+        _proveFee(5991, 11_000 ether); // sum 40k / 4 = 10k
         assertEq(oracle.provenTrailingFee(bytes20(borrower)), 10_000 ether);
 
-        // 28,000 passes; 28,001 fails — sized off PROVEN data, not the lie
         vm.prank(lender);
         uint256 ok = vault.offer(borrower, false, PRINCIPAL_USD, 28_000 ether, MARGIN, 0, 500, TERM);
         vm.prank(borrower);
@@ -115,5 +117,37 @@ contract ProvenUnderwritingTest is Test {
         vm.expectRevert(abi.encodeWithSelector(LoanVault.ExceedsCreditLine.selector, 28_001 ether, 28_000 ether));
         vm.prank(borrower);
         vault.accept(tooBig);
+    }
+
+    // THE FIX (review-3 HIGH): cherry-picking a single peak epoch must NOT
+    // inflate the line — too few proven epochs => 0 trailing => 0 line.
+    function test_cherryPickSinglePeak_givesZeroLine() public {
+        _proveFee(5991, 999_999 ether); // one huge real epoch, nothing else
+        assertEq(oracle.provenTrailingFee(bytes20(borrower)), 0); // count 1 < window 4
+        vm.prank(lender);
+        uint256 id = vault.offer(borrower, false, PRINCIPAL_USD, 1 ether, MARGIN, 0, 500, TERM);
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.ExceedsCreditLine.selector, 1 ether, 0));
+        vm.prank(borrower);
+        vault.accept(id);
+    }
+
+    // A gap in the window (skip a weak epoch, keep the strong ones) must also
+    // yield 0 — contiguity is required.
+    function test_gapInWindow_givesZeroLine() public {
+        _proveFee(5988, 12_000 ether);
+        _proveFee(5989, 12_000 ether);
+        _proveFee(5990, 12_000 ether);
+        _proveFee(5992, 12_000 ether); // skipped 5991 -> count 4, span 5
+        assertEq(oracle.provenTrailingFee(bytes20(borrower)), 0);
+    }
+
+    // Proving the FULL contiguous window including the weak epochs gives the
+    // honest lower average — you cannot escape your bad epochs.
+    function test_fullWindowIncludesWeakEpochs() public {
+        _proveFee(5988, 1_000 ether);
+        _proveFee(5989, 1_000 ether);
+        _proveFee(5990, 1_000 ether);
+        _proveFee(5991, 12_000 ether); // one spike; honest avg = 3,750
+        assertEq(oracle.provenTrailingFee(bytes20(borrower)), 3_750 ether);
     }
 }

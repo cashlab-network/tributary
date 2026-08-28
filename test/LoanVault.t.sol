@@ -44,7 +44,7 @@ contract LoanVaultTestBase is Test {
         wnat = new MockWNat();
         csm = new MockCSM();
         ftso = new MockFtso();
-        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(0)));
+        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(0)), 8);
         vault = new LoanVault(_config(0)); // band off in the base suite
 
         usd.mint(lender, PRINCIPAL_USD);
@@ -632,7 +632,7 @@ contract PassLedgerOracleTest is Test {
     address validator = makeAddr("validator");
 
     function setUp() public {
-        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(0)));
+        oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(0)), 8);
     }
 
     function test_post_byNonPosterReverts() public {

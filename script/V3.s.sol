@@ -52,7 +52,7 @@ contract V3 is Script {
 
         vm.startBroadcast(deployerPk);
         PassLedgerOracle oracle =
-            new PassLedgerOracle(deployer, IFlareContractRegistry(0xaD67FE66660Fb8dFE9d6b1b4240d8650e30F6019));
+            new PassLedgerOracle(deployer, IFlareContractRegistry(0xaD67FE66660Fb8dFE9d6b1b4240d8650e30F6019), 8);
         LoanVault vault = new LoanVault(
             LoanVault.Config({
                 usd: IERC20(USDT0),

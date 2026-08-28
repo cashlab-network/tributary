@@ -82,19 +82,33 @@ contract PassLedgerOracle {
     }
 
     mapping(bytes20 => mapping(uint24 => mapping(ClaimType => Proven))) public provenRewards;
-    // Running total + count of proven FEE claims per beneficiary -> a trailing
-    // average that is fully trustless.
-    mapping(bytes20 => uint256) public provenFeeSum;
-    mapping(bytes20 => uint256) public provenFeeCount;
+
+    /// Per-beneficiary FEE aggregate. To make the trailing figure NOT
+    /// cherry-pickable (a borrower proving only their peak epoch), the proven
+    /// FEE epochs must form a CONTIGUOUS window of at least `minTrailingWindow`
+    /// epochs: sum/count is a real trailing average only when
+    /// count == maxEpoch - minEpoch + 1 (no gaps) AND count >= minTrailingWindow.
+    /// Any gap or a too-short set yields a 0 trailing (fails safe).
+    struct FeeAgg {
+        uint256 sum;
+        uint32 count;
+        uint24 minEpoch;
+        uint24 maxEpoch;
+    }
+
+    mapping(bytes20 => FeeAgg) public feeAgg;
 
     /// Same address on every Flare network; the FSM is resolved through it at
     /// call time because Flare redeploys implementations behind the registry.
     IFlareContractRegistry public immutable registry;
+    /// Minimum contiguous proven-epoch window for a nonzero trailing figure.
+    uint32 public immutable minTrailingWindow;
 
-    constructor(address poster_, IFlareContractRegistry registry_) {
+    constructor(address poster_, IFlareContractRegistry registry_, uint32 minTrailingWindow_) {
         if (poster_ == address(0)) revert ZeroAddress();
         poster = poster_;
         registry = registry_; // may be address(0) in pure unit tests
+        minTrailingWindow = minTrailingWindow_ == 0 ? 8 : minTrailingWindow_;
         emit PosterChanged(poster_);
     }
 
@@ -154,8 +168,8 @@ contract PassLedgerOracle {
     ///         has signed on-chain. Permissionless — the proof is the
     ///         authority, not msg.sender. The keeper lifts the leaf `body` and
     ///         `merkleProof` verbatim from Flare's published
-    ///         reward-distribution-data.json. FEE claims accumulate into a
-    ///         trustless trailing average.
+    ///         reward-distribution-data.json. FEE claims accumulate into the
+    ///         contiguity-checked window used by provenTrailingFee.
     function postWithProof(RewardClaim calldata claim, bytes32[] calldata merkleProof) external {
         bytes32 root =
             IFlareSystemsManager(registry.getContractAddressByName("FlareSystemsManager")).rewardsHash(claim.rewardEpochId);
@@ -172,18 +186,34 @@ contract PassLedgerOracle {
         p.proven = true;
 
         if (claim.claimType == ClaimType.FEE) {
-            provenFeeSum[claim.beneficiary] += claim.amount;
-            provenFeeCount[claim.beneficiary] += 1;
+            FeeAgg storage a = feeAgg[claim.beneficiary];
+            a.sum += claim.amount;
+            if (a.count == 0) {
+                a.minEpoch = claim.rewardEpochId;
+                a.maxEpoch = claim.rewardEpochId;
+            } else {
+                if (claim.rewardEpochId < a.minEpoch) a.minEpoch = claim.rewardEpochId;
+                if (claim.rewardEpochId > a.maxEpoch) a.maxEpoch = claim.rewardEpochId;
+            }
+            a.count += 1;
         }
         emit RewardProven(claim.beneficiary, claim.rewardEpochId, claim.claimType, claim.amount);
     }
 
-    /// @notice Trustless trailing average of proven FEE income (wei/epoch), 0
-    ///         if none proven yet. This is the number a future vault can
-    ///         underwrite on WITHOUT trusting the poster.
+    /// @notice Trustless trailing average of proven FEE income (wei/epoch).
+    ///         Returns 0 (fails safe) UNLESS the proven FEE epochs form a
+    ///         CONTIGUOUS window of at least `minTrailingWindow` — i.e.
+    ///         count == maxEpoch - minEpoch + 1 AND count >= minTrailingWindow.
+    ///         This defeats cherry-picking: a borrower can't prove only their
+    ///         peak epoch (count too small) or skip weak epochs (a gap makes
+    ///         count < span, so it reverts to 0). The only way to a nonzero
+    ///         figure is to prove a real, unbroken run of recent epochs.
     function provenTrailingFee(bytes20 beneficiary) external view returns (uint256) {
-        uint256 n = provenFeeCount[beneficiary];
-        return n == 0 ? 0 : provenFeeSum[beneficiary] / n;
+        FeeAgg storage a = feeAgg[beneficiary];
+        if (a.count < minTrailingWindow) return 0;
+        // contiguity: no gaps in [minEpoch, maxEpoch]
+        if (uint256(a.count) != uint256(a.maxEpoch) - uint256(a.minEpoch) + 1) return 0;
+        return a.sum / a.count;
     }
 
     /// Commutative Merkle verification (OpenZeppelin MerkleProof semantics):

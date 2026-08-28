@@ -43,7 +43,7 @@ contract ForkIntegrationTest is Test {
             return;
         }
         usd = new MockERC20("USDT0");
-        oracle = new PassLedgerOracle(keeper, IFlareContractRegistry(REGISTRY));
+        oracle = new PassLedgerOracle(keeper, IFlareContractRegistry(REGISTRY), 8);
         vault = new LoanVault(
             LoanVault.Config({
                 usd: IERC20(address(usd)),
@@ -155,7 +155,7 @@ contract ForkIntegrationTest is Test {
         vm.deal(me, 1_000 ether); // C2FLR for margin + wrap
 
         vm.startPrank(me);
-        oracle = new PassLedgerOracle(me, IFlareContractRegistry(REGISTRY));
+        oracle = new PassLedgerOracle(me, IFlareContractRegistry(REGISTRY), 8);
         LoanVault v = new LoanVault(
             LoanVault.Config({
                 usd: IERC20(address(usd)),

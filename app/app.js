@@ -374,8 +374,10 @@ async function repayFromWallet() {
     const w = new ethers.Contract(A.wnat, WNAT_WRITE_ABI, signer);
     const cur = await w.allowance(walletAddr, A.vault);
     if (cur < amt) {
+      // approve exactly this repayment (not infinite) — no standing allowance
+      // left on a shared vault (review-3 Finding 2).
       msg.textContent = "approving WFLR (sign in wallet)…";
-      const txa = await w.approve(A.vault, ethers.MaxUint256);
+      const txa = await w.approve(A.vault, amt);
       await txa.wait();
     }
     msg.textContent = "repaying (sign in wallet)…";

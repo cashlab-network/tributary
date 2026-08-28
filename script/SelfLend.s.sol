@@ -51,7 +51,7 @@ contract SelfLend is Script {
 
         vm.startBroadcast(pk);
         // 1. deploy v4 (all fixes) — you are the oracle poster / keeper too
-        PassLedgerOracle oracle = new PassLedgerOracle(me, IFlareContractRegistry(REGISTRY));
+        PassLedgerOracle oracle = new PassLedgerOracle(me, IFlareContractRegistry(REGISTRY), 8);
         LoanVault vault = new LoanVault(
             LoanVault.Config({
                 usd: IERC20(USDT0),
