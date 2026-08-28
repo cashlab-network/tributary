@@ -322,3 +322,22 @@ pre-signed exit), not unilateral.
 *Everything above is testnet with throwaway keys and faucet tokens. No real
 value has touched any of this, and none will before entity + counsel +
 professional audit — that ordering is a standing rule, not a preference.*
+
+## Design Q&A (from Daman's walkthrough, 2026-08-28)
+
+**Is there a prepayment penalty?** No, deliberately: the product's normal path
+IS continuous early repayment (each epoch's rewards pay down ahead of the
+deadline), so penalizing prepayment would fight the core mechanic. Interest
+accrues only for epochs that actually pass; full repayment releases margin
+immediately.
+
+**Do you repay the agreed FLR amount regardless of price?** Only in the
+fixed-FLR flavor — that is the forward-sale deal (coins locked at day-one
+price, lender keeps upside, borrower gets the cheapest rate). The fixed-dollar
+flavor owes dollars, repaid in FLR valued at the live oracle price at each
+payment (borrower keeps upside, higher rate).
+
+**Open consideration:** a lender pricing for a full term can be repaid early
+and earn less interest than expected. If real lenders push back, add an
+OPTIONAL consented minimum-interest term (accrue at least N epochs' interest
+even if repaid sooner) — a per-loan choice, never a hidden penalty.
