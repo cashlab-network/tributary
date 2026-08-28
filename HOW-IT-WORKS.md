@@ -274,6 +274,16 @@ An independent session was told to *refute* the contracts, not review them.
 The reviewer could NOT break token conservation, the fixed-dollar rounding, or
 reentrancy — the parts it attacked hardest.
 
+**A SECOND independent review** then attacked the fixes and the new features
+(maturity default, lender transfer, keeper redundancy, the Merkle oracle). It
+found **no new HIGH** and confirmed the maturity math, grace accounting,
+`transferLender`, the Merkle verification, and backup-poster access control all
+held. Two lower issues, both now fixed: the approval fence caught only
+`approve` (now also `increaseAllowance`/`decreaseAllowance` — F1), and `bind`
+accepted a zero collector on a pre-accept loan (now rejected — F2). Three
+informational footguns are documented in NatSpec. Still: two AI reviews are not
+a professional human audit, which stays the hard gate before any real value.
+
 ## A bonus finding: self-bond collateral may need no Flare change
 
 Research (`research/PCHAIN-MULTISIG-BOND-RESEARCH.md`) found that a **new**
