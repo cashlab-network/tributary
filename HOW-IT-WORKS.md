@@ -351,3 +351,41 @@ finding), for marginal borrower benefit. Serial loans also reprice at the
 CURRENT pass-rate each time, which is better underwriting than a stale line.
 If borrowers later want a tap-without-resigning line, build it post-audit as a
 wrapper over these loans, not a rewrite.
+
+## The everyday-holder product — self-contained delegator loans (2026-08-28)
+
+Decided + BUILT: the same engine serves every FLR delegator, not just
+validators. Three design answers to "how does a normal person without passes
+get a rate":
+
+1. **Rate inherits from your provider.** A delegator's stream reliability IS
+   the provider they staked with — and that provider has a pass record. The
+   keeper posts the provider's passes on the delegator's row, so delegating to
+   a 3-pass provider earns the 3-pass rate. Zero code change (the rate formula
+   already keys off a pass count). Bonus: it pays people to delegate to
+   reliable providers — exactly what the network wants.
+2. **Fallback:** a 0-pass record simply pays the top of the band
+   (benchmark + 4pts) — an honest "set rate" already in the code.
+3. **Self-contained mode (BUILT — `offerStream`):** the margin escrow
+   delegates to an FTSO provider and routes its OWN FSP earnings to the loan's
+   collector. The locked collateral generates the repayment stream, and the
+   borrower cannot switch it off because the escrow holds the stake. This is
+   likely the best consumer version — the loan repays itself from its own
+   collateral. `MarginEscrow` now has two modes (validator: delegate-to-
+   borrower, keep earnings; delegator: delegate-to-provider, earnings->
+   collector). Tests in DelegatorLoan.t.sol.
+
+**One site, one vault, two doors** — not two codebases. Same loan engine;
+the front end shows "I run a validator" vs "I stake FLR" with different
+underwriting displays.
+
+**Honest limit:** per-delegator rewards are NOT individually Merkle-provable
+(Flare's reward tree records the provider's pool, not each staker's cut), so
+delegator underwriting uses the trusted-keeper lane. Mechanism: proven.
+Trustless per-delegator underwriting: future work.
+
+**Framing rule (tax):** never market this as tax avoidance. "Spend without
+selling your stack" is true and safe everywhere; staking/validator rewards are
+generally ordinary income when earned regardless of what repays the loan.
+Real tax treatment (esp. the fixed-FLR forward-sale flavor) is a question for
+licensed counsel, already in the roadmap before any real funds.

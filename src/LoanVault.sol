@@ -78,6 +78,10 @@ contract LoanVault {
         bool funded;
         MarginEscrow escrow;
         RewardCollector collector;
+        /// zero = validator mode (escrow delegates to borrower, keeps earnings
+        /// for them); nonzero = self-contained delegator mode (escrow
+        /// delegates to this provider and its earnings repay the loan).
+        address streamProvider;
         Status status;
     }
 
@@ -178,6 +182,8 @@ contract LoanVault {
     /// @notice Lender posts terms for one specific borrower. Value-free
     ///         (H-03). `debt` is FLR wei (fixed-FLR) or USD 6dp
     ///         (fixed-dollar); `defaultFee` shares the debt's denomination.
+    ///         VALIDATOR mode: the margin escrow delegates back to the
+    ///         borrower and keeps its own earnings for them.
     function offer(
         address borrower,
         bool fixedDollar,
@@ -188,6 +194,46 @@ contract LoanVault {
         uint256 benchmarkBps,
         uint16 termEpochs
     ) external returns (uint256 id) {
+        return _createOffer(
+            borrower, fixedDollar, principalUsd, debt, requiredMargin, defaultFee, benchmarkBps, termEpochs, address(0)
+        );
+    }
+
+    /// @notice SELF-CONTAINED DELEGATOR mode (the everyday-holder product):
+    ///         the margin escrow delegates to `streamProvider` (an FTSO
+    ///         provider's delegation address) and routes its OWN FSP earnings
+    ///         to the loan's collector — the locked collateral generates the
+    ///         repayment stream, and the borrower cannot switch it off,
+    ///         because the escrow holds the stake. Consented like every other
+    ///         term: it is fixed at offer and the borrower sees it at accept.
+    function offerStream(
+        address borrower,
+        bool fixedDollar,
+        uint256 principalUsd,
+        uint256 debt,
+        uint256 requiredMargin,
+        uint256 defaultFee,
+        uint256 benchmarkBps,
+        uint16 termEpochs,
+        address streamProvider
+    ) external returns (uint256 id) {
+        if (streamProvider == address(0)) revert ZeroAddress();
+        return _createOffer(
+            borrower, fixedDollar, principalUsd, debt, requiredMargin, defaultFee, benchmarkBps, termEpochs, streamProvider
+        );
+    }
+
+    function _createOffer(
+        address borrower,
+        bool fixedDollar,
+        uint256 principalUsd,
+        uint256 debt,
+        uint256 requiredMargin,
+        uint256 defaultFee,
+        uint256 benchmarkBps,
+        uint16 termEpochs,
+        address streamProvider
+    ) internal returns (uint256 id) {
         if (borrower == address(0)) revert ZeroAddress();
         if (principalUsd == 0 || debt == 0 || requiredMargin == 0 || termEpochs == 0) revert ZeroAmount();
         if (fixedDollar && address(ftso) == address(0)) revert PriceUnavailable();
@@ -203,6 +249,7 @@ contract LoanVault {
         loan.defaultFee = defaultFee;
         loan.benchmarkBps = benchmarkBps;
         loan.termEpochs = termEpochs;
+        loan.streamProvider = streamProvider;
         loan.status = Status.Offered;
         emit LoanOffered(id, msg.sender, borrower, fixedDollar);
     }
@@ -313,7 +360,14 @@ contract LoanVault {
         Loan storage loan = loans[id];
         if (msg.sender != loan.borrower) revert NotParty(id, msg.sender);
         if (address(loan.escrow) != address(0)) revert AlreadyMargined(id);
-        MarginEscrow escrow = new MarginEscrow(wnat, loan.borrower, claimSetupManager, keeperExecutor);
+        bool streamMode = loan.streamProvider != address(0);
+        MarginEscrow escrow = new MarginEscrow(
+            wnat,
+            streamMode ? loan.streamProvider : loan.borrower, // delegatee
+            claimSetupManager,
+            keeperExecutor,
+            streamMode ? address(loan.collector) : loan.borrower // earnings recipient
+        );
         loan.escrow = escrow;
         _pullExact(wnat, msg.sender, address(escrow), loan.requiredMargin);
         emit MarginPosted(id, address(escrow));
