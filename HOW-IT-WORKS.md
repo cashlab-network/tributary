@@ -177,17 +177,22 @@ account, what happens?" The chain answered: **reverts, `BindingForbidsThis`.**
 
 ## THE GAPS REGISTER — what's honestly wrong or missing
 
-**G1 · The scoreboard clerk is trusted.** The oracle poster could post lies;
-the contract can't tell. *Planned fix: verify posted rewards against the
-Merkle roots Flare's RewardManager already stores on-chain — then lying
-becomes impossible, not just detectable. Research task open.*
+**G1 · FIXED — the reward number is now trustless.** `postWithProof()` on the
+oracle verifies a Flare reward claim against the Merkle root Flare's
+FlareSystemsManager has signed on-chain (exact RewardClaim struct + sorted-
+pair keccak, proven end-to-end against a real mainnet root in
+`research/MERKLE-ORACLE-RESEARCH.md`). A lying poster is now *impossible* for
+a proven FEE amount (a provider's own income); `provenTrailingFee` is a fully
+trustless trailing average. Residual: FIP.10 **pass counts** have no on-chain
+commitment anywhere, so they necessarily stay in the trusted-poster lane.
 
-**G2 · The paydays were simulated.** Demo rewards were plain transfers, not
-real RewardManager claims. The executor-claim path against Flare's real
-reward contracts is enrolled but has never actually executed a claim. *Real
-delegation is now live (borrower WFLR → active provider, 2026-08-27), so
-genuinely earned rewards exist to claim within epochs. The first real
-claim-and-sweep is the next milestone.*
+**G2 · Real claim armed and de-risked; execution is calendar-gated.** The
+runbook (`research/REAL-CLAIM-RUNBOOK.md`) established our mid-epoch delegation
+was not counted until epoch 5994; rewards become claimable ~Fri Aug 28 ~14:00
+UTC. The top failure point it named — the owner-side executor + allowed-
+recipient enrollment on the delegator EOA — is now **done and verified
+on-chain** ahead of time. `keeper/claim_real.sh` is ready; a watcher fires the
+moment epoch 5994's root is signed. Proofless weight-based claiming applies.
 
 **G3 · FIXED same day.** The v3 stack posts under the REAL reward epoch id
 read from FlareSystemsManager (5992 at deploy). Keeper discipline still
@@ -218,9 +223,15 @@ lender received exactly $0.05 worth (7.4626 WFLR at the live price),
 conservation wei-exact. Borrower keeps upside by construction (tested:
 price doubles, half the coins).
 
-**G9 · Nobody independent has attacked this code.** 67 self-written tests
-are necessary, not sufficient. Independent refutation review → then
-professional audit before any real value, ever.
+**G9 · One independent refutation review done — 4 real findings, all fixed.**
+A separate session attacked the contracts and found two HIGH (a live-but-non-
+paying borrower could hold an unrecoverable loan; a 1-wei "cure" could stall
+settlement forever) and two MEDIUM (a decoy-collector bind; a pre-existing
+approval surviving the fence). All four are fixed with regression tests (see
+the Security-review section below). The reviewer confirmed token conservation,
+the fixed-dollar rounding, and reentrancy all held. This is one adversarial AI
+pass — a **professional human audit is still required before any real value**,
+and remains the hard gate.
 
 **G10 · FIXED same day** — history minimum, dead-epoch trigger, and grace
 length are now per-deployment configuration, chosen consciously per chain
@@ -238,16 +249,53 @@ eventually costs real money.) Needs at least a second independent executor.
 against the FTSO within a configurable band (±25% on v3); a fat-fingered
 pair reverts PriceOutOfBand. FTSO reads carry a staleness guard.
 
+## Security review — the four findings and their fixes
+
+An independent session was told to *refute* the contracts, not review them.
+
+- **HIGH-1 · unrecoverable loan.** `termEpochs` sized the loan but was never a
+  deadline, so a validator that stayed alive but never repaid could hold the
+  principal forever with no lender lever. **Fix:** the term is now a real
+  maturity — a loan still owing at `maturesAtEpoch` is a settleable default,
+  alive or not. (This also corrected a false claim in this doc: diverting the
+  stream walks toward settlement *via the term*, not via dead-epochs.)
+- **HIGH-2 · dust-cure grief.** Any 1-wei payment during Grace reset the loan
+  to Drawn, so anyone could stall settlement indefinitely. **Fix:** partial
+  payments still apply but no longer reset status; only full repayment heals a
+  loan in Grace, and settlement proceeds when the window expires.
+- **MEDIUM-1 · decoy collector.** `BorrowerAccount.bind` trusted a caller-
+  supplied collector. **Fix:** it now verifies against `vault.collectorOf(id)`.
+- **MEDIUM-2 · surviving approval.** An approval granted while unbound could
+  drain a later WFLR reward past the fence. **Fix:** `exec` records every
+  approve; `bind` revokes them all before fencing.
+- **LOW · settlement price band** is a documented residual (adding a revert to
+  `settle()` would reintroduce the HIGH-1 stuck-loan class).
+
+The reviewer could NOT break token conservation, the fixed-dollar rounding, or
+reentrancy — the parts it attacked hardest.
+
+## A bonus finding: self-bond collateral may need no Flare change
+
+Research (`research/PCHAIN-MULTISIG-BOND-RESEARCH.md`) found that a **new**
+Flare self-bond can already name a threshold (multisig) owner for its staked-
+principal return, with zero protocol changes — and because Flare pays P-chain
+rewards as zero (rewards flow through the C-chain contracts we integrate),
+principal control and reward economics are cleanly independent. This could
+deliver "self-bond as collateral" without the v3 FIP — verdict PARTIALLY YES,
+gated on a Coston2 dry-run and the report's UNVERIFIED list. No per-party
+timelock primitive exists, so default resolution stays cooperative (2-of-2 or
+pre-signed exit), not unilateral.
+
 ## What's next, in order
 
-1. **v3 redeploy** with today's two fixes (G4, G5) + real epoch ids (G3).
-2. **First real reward claim** through the enrolled executor path (G2) —
-   delegation is already accruing.
-3. **Fixed-dollar flavor** on FTSOv2 (G8), with the price-band check (G13).
-4. **Merkle-proof oracle research** in flare-foundation/flare-smart-contracts-v2 (G1).
-5. **Independent refutation review** of contracts + this document (G9).
-6. Keeper redundancy + real-data pipeline (G12, G3), policy constants per
-   chain (G10), VRM staking-side enrollment (G6).
+1. **First real reward claim** (G2) — armed and de-risked; fires when epoch
+   5994's root signs (~Fri Aug 28).
+2. **Professional audit** (G9) — the hard gate before any real value.
+3. Wire `provenTrailingFee` (G1) into the vault's underwriting so the trailing
+   number itself is trustless, not just provable.
+4. Keeper redundancy (G12); VRM staking-side enrollment (G6); benchmark
+   surfaced from chain data (G7); syndication/transferability (G11).
+5. A funded v4 redeploy carrying every fix, then wallet-write in the app.
 
 *Everything above is testnet with throwaway keys and faucet tokens. No real
 value has touched any of this, and none will before entity + counsel +

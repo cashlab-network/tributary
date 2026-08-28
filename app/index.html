@@ -124,6 +124,13 @@ td{padding:.35rem .5rem;border-bottom:1px solid var(--line);font-family:"IBM Ple
 
   <div id="errzone"></div>
 
+  <div class="err-box" style="background:var(--info-bg);border-color:var(--info);color:var(--ink)">
+    <b>Note:</b> this live exhibit is the v3 vault, deployed before the independent
+    security review. The corrected contracts (maturity default, dust-cure fix,
+    collector verification, approval revocation, trustless Merkle oracle) pass 90 tests
+    in the repo; a v4 redeploy is gated only on testnet faucet gas.
+  </div>
+
   <p class="eyebrow">Live protocol</p>
   <h2>The v3 vault, on the real testnet</h2>
   <p class="section-sub">Everything below is read straight from Coston2 over the public RPC —
