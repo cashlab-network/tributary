@@ -24,7 +24,7 @@ const VAULT_ABI = [
   "function deadEpochsToTrigger() view returns (uint32)",
   "function gracePeriod() view returns (uint64)",
   "function maxPriceDeviationBps() view returns (uint16)",
-  "function getLoan(uint256) view returns (tuple(address borrower,address lender,bool fixedDollar,uint256 principalUsd,uint256 debt,uint256 outstanding,uint256 requiredMargin,uint256 defaultFee,uint256 benchmarkBps,uint64 lastAccrualEpoch,uint64 curedAtEpoch,uint64 graceEndsAt,uint16 termEpochs,bool funded,address escrow,address collector,uint8 status))",
+  "function getLoan(uint256) view returns (tuple(address borrower,address lender,bool fixedDollar,uint256 principalUsd,uint256 debt,uint256 outstanding,uint256 requiredMargin,uint256 defaultFee,uint256 benchmarkBps,uint64 lastAccrualEpoch,uint64 maturesAtEpoch,uint64 graceEndsAt,uint16 termEpochs,bool funded,address escrow,address collector,uint8 status))",
 ];
 const ORACLE_ABI = [
   "function latest(address) view returns (tuple(uint64 epochId,uint192 trailingRewardPerEpoch,uint32 passCount,uint32 settledEpochs,uint32 deadStreak))",

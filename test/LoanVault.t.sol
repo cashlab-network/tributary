@@ -89,7 +89,12 @@ contract LoanVaultTestBase is Test {
     }
 
     function _openAndDraw() internal returns (uint256 id) {
-        id = _offer();
+        return _openAndDrawTerm(TERM_EPOCHS);
+    }
+
+    function _openAndDrawTerm(uint16 term) internal returns (uint256 id) {
+        vm.prank(lender);
+        id = vault.offer(borrower, false, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, term);
         vm.prank(borrower);
         vault.accept(id);
         vm.prank(lender);
@@ -342,13 +347,45 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
     }
 
     function test_deadStreakResetsOnAliveEpoch() public {
-        uint256 id = _openAndDraw();
+        // long term so this exercises dead-streak logic, not maturity default
+        uint256 id = _openAndDrawTerm(100);
         _postDead();
         _postDead();
         _postDead();
         _postAlive(); // recovery: a zero-reward stretch alone never defaults anyone
         _postDead();
         vm.expectRevert(abi.encodeWithSelector(LoanVault.TriggerNotMet.selector, id));
+        vault.trip(id);
+    }
+
+    // --- HIGH-1: maturity is a settleable default even for a live validator ---
+
+    function test_maturity_liveButUnpaidBorrowerCanBeTripped() public {
+        uint256 id = _openAndDrawTerm(4); // matures 4 epochs after draw
+        // validator stays perfectly alive but never repays
+        for (uint256 i; i < 4; i++) _postAlive();
+        // before maturity: not trippable
+        // (draw epoch was 101; matures 105; we're now at 105)
+        vault.trip(id); // at/after maturity with outstanding>0 -> Grace
+        assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Grace));
+    }
+
+    function test_maturity_notTrippableBeforeTerm() public {
+        uint256 id = _openAndDrawTerm(10);
+        for (uint256 i; i < 3; i++) _postAlive(); // alive, well before maturity
+        vm.expectRevert(abi.encodeWithSelector(LoanVault.TriggerNotMet.selector, id));
+        vault.trip(id);
+    }
+
+    function test_maturity_fullyRepaidNeverTrips() public {
+        uint256 id = _openAndDrawTerm(4);
+        vm.prank(borrower);
+        vault.repay(id, DEBT_FLR); // paid off before maturity
+        for (uint256 i; i < 6; i++) _postAlive(); // sail past maturity
+        // Repaid is terminal; trip requires Drawn
+        vm.expectRevert(
+            abi.encodeWithSelector(LoanVault.WrongStatus.selector, id, LoanVault.Status.Repaid, LoanVault.Status.Drawn)
+        );
         vault.trip(id);
     }
 
@@ -361,19 +398,35 @@ contract LoanVaultLifecycleTest is LoanVaultTestBase {
         assertEq(loan.graceEndsAt, uint64(block.timestamp) + 7 days);
     }
 
-    function test_grace_paymentCures() public {
-        uint256 id = _openAndDraw();
+    // HIGH-2: a dust payment during Grace does NOT reset the loan to Drawn,
+    // so it can no longer be used to stall settlement forever.
+    function test_grace_dustDoesNotCure() public {
+        uint256 id = _openAndDrawTerm(100); // long term: isolate dead-stream default
         for (uint256 i; i < 4; i++) _postDead();
         vault.trip(id);
-        vm.prank(borrower);
-        vault.repay(id, 1_000 ether); // any payment: not "refusing to pay"
-        assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Drawn));
-        // and it cannot re-trip until a NEW epoch posts
-        vm.expectRevert(abi.encodeWithSelector(LoanVault.TriggerNotMet.selector, id));
-        vault.trip(id);
-        _postDead(); // still dead next epoch -> trippable again
-        vault.trip(id);
+        // a griefer (not even a party) pays 1 wei
+        wnat.mint(stranger, 1);
+        vm.startPrank(stranger);
+        wnat.approve(address(vault), type(uint256).max);
+        vault.repay(id, 1); // 1 wei
+        vm.stopPrank();
+        // still in Grace — the settlement clock keeps running
         assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Grace));
+        vm.warp(block.timestamp + 7 days);
+        vault.settle(id); // settlement proceeds despite the dust
+        assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Settled));
+    }
+
+    // A borrower CAN still save the loan during Grace — by fully repaying.
+    function test_grace_fullRepaymentHeals() public {
+        uint256 id = _openAndDrawTerm(100);
+        for (uint256 i; i < 4; i++) _postDead();
+        vault.trip(id);
+        uint256 owed = vault.getLoan(id).outstanding;
+        vm.prank(borrower);
+        vault.repay(id, owed);
+        assertEq(uint8(vault.getLoan(id).status), uint8(LoanVault.Status.Repaid));
+        assertEq(vault.owed(borrower, address(wnat)), MARGIN); // margin released
     }
 
     function test_settle_beforeGraceEndsReverts() public {

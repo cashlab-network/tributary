@@ -70,7 +70,7 @@ contract LoanVault {
         uint256 defaultFee; // pre-agreed, in the debt's denomination
         uint256 benchmarkBps; // lender's passive alternative, annualized
         uint64 lastAccrualEpoch;
-        uint64 curedAtEpoch;
+        uint64 maturesAtEpoch; // drawEpoch + termEpochs; the payoff DEADLINE
         uint64 graceEndsAt;
         uint16 termEpochs;
         bool funded;
@@ -110,7 +110,6 @@ contract LoanVault {
     event Repayment(uint256 indexed id, address from, uint256 appliedDebt, uint256 lenderFlr, uint256 excessFlr);
     event LoanRepaid(uint256 indexed id);
     event GraceStarted(uint256 indexed id, uint64 endsAt);
-    event GraceCured(uint256 indexed id);
     event LoanSettled(uint256 indexed id, uint256 recoveredFlr, uint256 shortfallFlr, uint256 returnedToBorrower);
     event Withdrawal(address indexed to, address indexed token, uint256 amount);
 
@@ -282,7 +281,12 @@ contract LoanVault {
         bool margined = address(loan.escrow) != address(0);
         if (!loan.funded || !margined) revert NotReadyToDraw(id, loan.funded, margined);
         loan.status = Status.Drawn;
-        loan.lastAccrualEpoch = oracle.latest(loan.borrower).epochId;
+        uint64 drawEpoch = oracle.latest(loan.borrower).epochId;
+        loan.lastAccrualEpoch = drawEpoch;
+        // The term IS the deadline (Lodestar's "calendar, not price"): a loan
+        // still owing at maturity is a settleable default, even if the
+        // validator stayed alive (HIGH-1: liveness != repayment).
+        loan.maturesAtEpoch = drawEpoch + loan.termEpochs;
         _push(usd, loan.borrower, loan.principalUsd);
         emit LoanDrawn(id);
     }
@@ -349,14 +353,15 @@ contract LoanVault {
         owed[loan.lender][address(wnat)] += lenderFlr;
         if (excessFlr != 0) owed[loan.borrower][address(wnat)] += excessFlr;
 
-        bool wasGrace = loan.status == Status.Grace;
+        // HIGH-2: a partial payment during Grace still applies (reducing what
+        // settlement will seize) but does NOT reset the loan to Drawn — so a
+        // 1-wei "cure" can no longer be used by anyone to stall settlement
+        // forever. The only exits from Grace are FULL repayment here (→Repaid)
+        // or settle() after the window expires. Once the debt is fully cleared
+        // the loan is healed regardless of prior status.
         bool fullyRepaid = loan.outstanding == 0;
         if (fullyRepaid) {
             loan.status = Status.Repaid;
-        } else if (wasGrace) {
-            loan.status = Status.Drawn;
-            loan.curedAtEpoch = oracle.latest(loan.borrower).epochId;
-            emit GraceCured(id);
         }
 
         _pullExact(wnat, msg.sender, address(this), amount);
@@ -369,15 +374,19 @@ contract LoanVault {
 
     // ---------------------------------------------------------------- default
 
-    /// @notice State trigger, never a price: deadEpochsToTrigger consecutive
-    ///         dead epochs on the posted ledger. After a cure, a NEW epoch
-    ///         must post before it can trip again.
+    /// @notice Two settleable defaults, both state triggers, never a price:
+    ///         (a) the validator is genuinely dead — deadEpochsToTrigger
+    ///         consecutive dead epochs on the posted ledger; or (b) HIGH-1:
+    ///         the loan reached MATURITY still owing. Either starts the grace
+    ///         clock, giving the borrower the window to fully repay before the
+    ///         margin settles the debt. A still-alive borrower who never
+    ///         repays hits (b) at term — the lender always has a lever.
     function trip(uint256 id) external inStatus(id, Status.Drawn) {
         Loan storage loan = loans[id];
         PassLedgerOracle.Record memory rec = oracle.latest(loan.borrower);
-        bool dead = rec.deadStreak >= deadEpochsToTrigger;
-        bool newEpochSinceCure = rec.epochId > loan.curedAtEpoch;
-        if (!dead || !newEpochSinceCure) revert TriggerNotMet(id);
+        bool deadDefault = rec.deadStreak >= deadEpochsToTrigger;
+        bool maturityDefault = rec.epochId >= loan.maturesAtEpoch && loan.outstanding > 0;
+        if (!deadDefault && !maturityDefault) revert TriggerNotMet(id);
         accrue(id);
         loan.status = Status.Grace;
         loan.graceEndsAt = uint64(block.timestamp) + gracePeriod;
@@ -442,6 +451,13 @@ contract LoanVault {
 
     function borrowerOf(uint256 id) external view returns (address) {
         return loans[id].borrower;
+    }
+
+    /// @notice The loan's real RewardCollector — so a BorrowerAccount can
+    ///         verify at bind() that it is fencing rewards to the RIGHT
+    ///         mailbox, not a decoy (MEDIUM-1).
+    function collectorOf(uint256 id) external view returns (address) {
+        return address(loans[id].collector);
     }
 
     // -------------------------------------------------------------- internals

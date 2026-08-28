@@ -53,6 +53,33 @@ contract BorrowerAccountTest is LoanVaultTestBase {
         account.bind(address(vault), id, address(collector), new address[](0));
     }
 
+    // MEDIUM-1: binding to a decoy collector must revert — the account checks
+    // the loan's REAL collector against the vault.
+    function test_bind_wrongCollectorReverts() public {
+        address decoy = makeAddr("decoy");
+        vm.expectRevert(abi.encodeWithSelector(BorrowerAccount.WrongCollector.selector, decoy, address(collector)));
+        vm.prank(borrower);
+        account.bind(address(vault), id, decoy, new address[](0));
+    }
+
+    // MEDIUM-2: a standing approval granted while unbound must NOT survive the
+    // fence — bind() revokes it, so no accomplice can drain a later reward.
+    function test_preApprovalRevokedAtBind() public {
+        address accomplice = makeAddr("accomplice");
+        // while unbound (full control) the owner pre-approves the accomplice
+        vm.prank(borrower);
+        account.exec(address(rewardToken), 0, abi.encodeCall(MockERC20.approve, (accomplice, type(uint256).max)));
+        assertEq(rewardToken.allowance(address(account), accomplice), type(uint256).max);
+        // now bind: the approval must be revoked
+        _bind(new address[](0));
+        assertEq(rewardToken.allowance(address(account), accomplice), 0);
+        // and a later reward is safe: the accomplice can't pull it
+        rewardToken.mint(address(account), 3_000 ether);
+        vm.expectRevert();
+        vm.prank(accomplice);
+        rewardToken.transferFrom(address(account), accomplice, 3_000 ether);
+    }
+
     // --- the fence: while bound, the owner cannot move value out ---
 
     function test_bound_ownerCannotTransferTokensOut() public {

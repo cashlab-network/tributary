@@ -6,6 +6,7 @@ import {IERC20} from "./interfaces/IERC20.sol";
 interface ILoanVaultForAccount {
     function statusOf(uint256 id) external view returns (uint8);
     function borrowerOf(uint256 id) external view returns (address);
+    function collectorOf(uint256 id) external view returns (address);
 }
 
 /// @title BorrowerAccount — Tributary's own claim-binding account (v2 core)
@@ -37,11 +38,23 @@ contract BorrowerAccount {
     error LoanStillActive(uint256 loanId);
     error BindingForbidsThis();
     error NotThisAccountsLoan();
+    error WrongCollector(address given, address actual);
     error CallFailed();
 
     event Bound(uint256 indexed loanId, address vault, address collector);
     event Released(uint256 indexed loanId);
     event RoutedToCollector(address indexed token, uint256 amount);
+    event ApprovalRevoked(address indexed token, address indexed spender);
+
+    struct Approval {
+        address token;
+        address spender;
+    }
+    /// Every ERC-20 approve() made through exec() is recorded here, so bind()
+    /// can revoke them all — closing MEDIUM-2: a standing approval granted
+    /// while unbound must not survive the fence and let an accomplice
+    /// transferFrom a later WFLR reward out of the bound account.
+    Approval[] internal grantedApprovals;
 
     address public immutable owner;
 
@@ -83,6 +96,20 @@ contract BorrowerAccount {
         if (bound) revert AlreadyBound(loanId);
         address borrower = ILoanVaultForAccount(vault_).borrowerOf(loanId_);
         if (borrower != address(this) && borrower != owner) revert NotThisAccountsLoan();
+        // MEDIUM-1: the collector must be the loan's REAL collector, read from
+        // the vault — not a decoy the owner points rewards at to dodge repay.
+        address realCollector = ILoanVaultForAccount(vault_).collectorOf(loanId_);
+        if (collector_ != realCollector) revert WrongCollector(collector_, realCollector);
+
+        // MEDIUM-2: revoke every approval this account granted while unbound,
+        // so no standing allowance can drain a future reward past the fence.
+        for (uint256 i; i < grantedApprovals.length; i++) {
+            Approval memory a = grantedApprovals[i];
+            (bool ok,) = a.token.call(abi.encodeCall(IERC20.approve, (a.spender, 0)));
+            if (ok) emit ApprovalRevoked(a.token, a.spender);
+        }
+        delete grantedApprovals;
+
         vault = ILoanVaultForAccount(vault_);
         collector = collector_;
         loanId = loanId_;
@@ -147,6 +174,12 @@ contract BorrowerAccount {
         if (bound) {
             if (value != 0) revert BindingForbidsThis();
             if (!allowedWhileBound[bindNonce][target]) revert BindingForbidsThis();
+        }
+        // Record any ERC-20 approve() so the next bind() can revoke it
+        // (MEDIUM-2). selector 0x095ea7b3 = approve(address,uint256).
+        if (data.length >= 36 && bytes4(data[0:4]) == IERC20.approve.selector) {
+            address spender = address(uint160(uint256(bytes32(data[4:36]))));
+            grantedApprovals.push(Approval({token: target, spender: spender}));
         }
         (bool ok, bytes memory ret) = target.call{value: value}(data);
         if (!ok) revert CallFailed();
