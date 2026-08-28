@@ -5,7 +5,9 @@ so you can aim your effort at what hasn't.
 
 ## The suite
 
-`forge test` — **106 tests** across unit, fuzz, and fork-integration.
+`forge test` — **118 tests** across unit, fuzz, and fork-integration (114
+local + 4 fork tests against live Coston2; count re-verified by a full run
+2026-08-28).
 
 - **Unit tests** per contract (`test/*.t.sol`): every lifecycle transition,
   every access-control path, every custom error.
