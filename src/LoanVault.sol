@@ -265,6 +265,12 @@ contract LoanVault {
     ///         whoever earned them — you sell the position, you keep what you
     ///         already collected. Not allowed once the loan is terminal
     ///         (nothing left to receive).
+    /// @dev    F3 footgun: on an Open+funded loan the principal-refund right
+    ///         (paid to the lender-of-record if the loan is cancelled) travels
+    ///         with the position too — a seller transferring a funded-but-
+    ///         undrawn loan also hands over the un-drawn principal claim.
+    ///         Tooling should surface this; it is not a theft (lender-only
+    ///         initiation, borrower terms untouched).
     function transferLender(uint256 id, address newLender) external {
         Loan storage loan = loans[id];
         Status s = loan.status;

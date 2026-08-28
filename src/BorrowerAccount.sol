@@ -69,6 +69,9 @@ contract BorrowerAccount {
 
     // statuses in LoanVault: Drawn=3, Grace=4; > 4 is terminal
     uint8 internal constant STATUS_GRACE = 4;
+    // OZ-lineage allowance-setter selectors (F1): recorded like approve().
+    bytes4 internal constant INCREASE_ALLOWANCE_SEL = 0x39509351; // increaseAllowance(address,uint256)
+    bytes4 internal constant DECREASE_ALLOWANCE_SEL = 0xa457c2d7; // decreaseAllowance(address,uint256)
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -96,10 +99,14 @@ contract BorrowerAccount {
         if (bound) revert AlreadyBound(loanId);
         address borrower = ILoanVaultForAccount(vault_).borrowerOf(loanId_);
         if (borrower != address(this) && borrower != owner) revert NotThisAccountsLoan();
-        // MEDIUM-1: the collector must be the loan's REAL collector, read from
-        // the vault — not a decoy the owner points rewards at to dodge repay.
+        // MEDIUM-1 + F2: the collector must be the loan's REAL collector, read
+        // from the vault — not a decoy, and NOT address(0). collectorOf returns
+        // 0 until the loan is accepted, so this also rejects binding a
+        // pre-accept (Offered) loan, which would otherwise pin a null collector.
         address realCollector = ILoanVaultForAccount(vault_).collectorOf(loanId_);
-        if (collector_ != realCollector) revert WrongCollector(collector_, realCollector);
+        if (realCollector == address(0) || collector_ != realCollector) {
+            revert WrongCollector(collector_, realCollector);
+        }
 
         // MEDIUM-2: revoke every approval this account granted while unbound,
         // so no standing allowance can drain a future reward past the fence.
@@ -175,11 +182,20 @@ contract BorrowerAccount {
             if (value != 0) revert BindingForbidsThis();
             if (!allowedWhileBound[bindNonce][target]) revert BindingForbidsThis();
         }
-        // Record any ERC-20 approve() so the next bind() can revoke it
-        // (MEDIUM-2). selector 0x095ea7b3 = approve(address,uint256).
-        if (data.length >= 36 && bytes4(data[0:4]) == IERC20.approve.selector) {
-            address spender = address(uint160(uint256(bytes32(data[4:36]))));
-            grantedApprovals.push(Approval({token: target, spender: spender}));
+        // Record any ERC-20 allowance grant so the next bind() can revoke it
+        // (MEDIUM-2 + F1). Match approve AND the OZ-lineage increaseAllowance /
+        // decreaseAllowance — all three take the spender as the first arg, and
+        // revoking to zero clears an allowance however it was set. Assets are
+        // an allowlist (WFLR, USDT0, stXRP); the contract holds no key, so
+        // EIP-2612 permit is not a bypass. Enrollment tooling should ALSO
+        // assert zero allowance on the loan assets before funding (defense in
+        // depth — the lender's safety should not rest on selector enumeration).
+        if (data.length >= 36) {
+            bytes4 sel = bytes4(data[0:4]);
+            if (sel == IERC20.approve.selector || sel == INCREASE_ALLOWANCE_SEL || sel == DECREASE_ALLOWANCE_SEL) {
+                address spender = address(uint160(uint256(bytes32(data[4:36]))));
+                grantedApprovals.push(Approval({token: target, spender: spender}));
+            }
         }
         (bool ok, bytes memory ret) = target.call{value: value}(data);
         if (!ok) revert CallFailed();

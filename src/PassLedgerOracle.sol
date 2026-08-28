@@ -101,6 +101,9 @@ contract PassLedgerOracle {
     /// @notice Hand the primary poster (admin) role over (e.g. deployer ->
     ///         keeper). The primary poster is also the admin that manages the
     ///         backup posters below.
+    /// @dev    F6 operational note: rotating the primary does NOT auto-revoke
+    ///         backups. If rotating because a key was compromised, revoke any
+    ///         now-untrusted backups explicitly via setBackupPoster(_, false).
     function setPoster(address poster_) external {
         if (msg.sender != poster) revert NotPoster();
         if (poster_ == address(0)) revert ZeroAddress();

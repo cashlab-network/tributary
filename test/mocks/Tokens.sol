@@ -24,6 +24,17 @@ contract MockERC20 {
         return true;
     }
 
+    // OZ-lineage extras, so BorrowerAccount's F1 fence can be exercised.
+    function increaseAllowance(address spender, uint256 added) external returns (bool) {
+        allowance[msg.sender][spender] += added;
+        return true;
+    }
+
+    function decreaseAllowance(address spender, uint256 sub) external returns (bool) {
+        allowance[msg.sender][spender] -= sub;
+        return true;
+    }
+
     function transfer(address to, uint256 amount) public virtual returns (bool) {
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;

@@ -62,6 +62,32 @@ contract BorrowerAccountTest is LoanVaultTestBase {
         account.bind(address(vault), id, decoy, new address[](0));
     }
 
+    // F2: binding a pre-accept (Offered) loan with collector_ == 0 must revert
+    // — collectorOf is 0 before accept, which previously slipped through.
+    function test_bind_zeroCollectorOnOfferedLoanReverts() public {
+        vm.prank(lender);
+        uint256 offeredId =
+            vault.offer(borrower, false, PRINCIPAL_USD, DEBT_FLR, MARGIN, DEFAULT_FEE, BENCHMARK_BPS, TERM_EPOCHS);
+        // not accepted yet -> collectorOf(offeredId) == 0
+        BorrowerAccount acct = new BorrowerAccount(borrower);
+        vm.expectRevert(abi.encodeWithSelector(BorrowerAccount.WrongCollector.selector, address(0), address(0)));
+        vm.prank(borrower);
+        acct.bind(address(vault), offeredId, address(0), new address[](0));
+    }
+
+    // F1: a standing allowance granted via increaseAllowance (not approve) must
+    // ALSO be revoked at bind.
+    function test_increaseAllowanceRevokedAtBind() public {
+        address accomplice = makeAddr("accomplice2");
+        vm.prank(borrower);
+        account.exec(
+            address(rewardToken), 0, abi.encodeCall(MockERC20.increaseAllowance, (accomplice, 5_000 ether))
+        );
+        assertEq(rewardToken.allowance(address(account), accomplice), 5_000 ether);
+        _bind(new address[](0));
+        assertEq(rewardToken.allowance(address(account), accomplice), 0);
+    }
+
     // MEDIUM-2: a standing approval granted while unbound must NOT survive the
     // fence — bind() revokes it, so no accomplice can drain a later reward.
     function test_preApprovalRevokedAtBind() public {
