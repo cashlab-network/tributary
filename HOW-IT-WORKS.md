@@ -36,8 +36,8 @@ your credit score is your public uptime record.
 ### Layer 0 — what Flare already gives us (we built none of this)
 
 1. **A paycheck schedule.** Every validator/provider earns rewards every
-   "reward epoch" (3.5 days on mainnet; **6 hours on Coston2** — Daman
-   caught that; it's now read from the chain, never assumed).
+   "reward epoch" (3.5 days on mainnet; **6 hours on Coston2** — caught in
+   review; it's now read from the chain, never assumed).
 2. **A public report card.** Every 3.5 days Flare publishes who passed, who
    got strikes, who earned what. Nobody can fake it.
 3. **Payment routing switches.** A wallet can name who's allowed to collect
@@ -324,7 +324,7 @@ pre-signed exit), not unilateral.
 value has touched any of this, and none will before entity + counsel +
 professional audit — that ordering is a standing rule, not a preference.*
 
-## Design Q&A (from Daman's walkthrough, 2026-08-28)
+## Design Q&A (from the design walkthrough, 2026-08-28)
 
 **Is there a prepayment penalty?** No, deliberately: the product's normal path
 IS continuous early repayment (each epoch's rewards pay down ahead of the
@@ -343,7 +343,7 @@ and earn less interest than expected. If real lenders push back, add an
 OPTIONAL consented minimum-interest term (accrue at least N epochs' interest
 even if repaid sooner) — a per-loan choice, never a hidden penalty.
 
-**HELOC / revolving line? (Daman, 2026-08-28)** Decided: discrete loans that
+**HELOC / revolving line? (2026-08-28)** Decided: discrete loans that
 CHAIN, not a standing revolver. The pitch's "payoff and revolve" is preserved —
 margin releases at payoff and immediately backs the next loan — while a true
 draw/repay/redraw line would add committed-capital management, redraw
@@ -393,7 +393,7 @@ licensed counsel, already in the roadmap before any real funds.
 
 ## Two doors, one rule: "we only lend against streams that can't run away" (2026-08-28)
 
-Daman's call: NO free-floating/revocable delegation as a lending basis. Only
+Design call: NO free-floating/revocable delegation as a lending basis. Only
 committed streams, and the commitment must be on-chain-visible. Built:
 
 - **Door 1 — Validators / P-chain stakers (Tier A, `offerStaked`).** The

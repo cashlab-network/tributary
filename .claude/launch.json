@@ -4,7 +4,7 @@
     {
       "name": "tributary-app",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8777", "--directory", "/Users/daman/tributary/app"],
+      "runtimeArgs": ["-m", "http.server", "8777", "--directory", "app"],
       "port": 8777
     }
   ]
