@@ -5,9 +5,9 @@ so you can aim your effort at what hasn't.
 
 ## The suite
 
-`forge test` — **118 tests** across unit, fuzz, and fork-integration (114
+`forge test` — **124 tests** across unit, fuzz, and fork-integration (120
 local + 4 fork tests against live Coston2; count re-verified by a full run
-2026-08-28).
+2026-08-29).
 
 - **Unit tests** per contract (`test/*.t.sol`): every lifecycle transition,
   every access-control path, every custom error.
@@ -53,9 +53,17 @@ been attacked by **independent sessions told to refute, not review**:
   (selector-narrow approval fence; zero-collector bind) fixed.
 - **Review 3** (trustless-underwriting wiring): found 1 HIGH — the "proven
   trailing" was cherry-pickable (prove only your peak epoch → 5.26x line
-  inflation, demonstrated by PoC). Fixed: the proven FEE epochs must form a
-  contiguous window of a minimum length, or the trailing is 0. Regression
-  tests added (single-peak→0, gap→0, full-window→honest average).
+  inflation, demonstrated by PoC). Fixed at the time: the proven FEE epochs
+  must form a contiguous window of a minimum length, or the trailing is 0.
+  Regression tests added (single-peak→0, gap→0, full-window→honest average).
+- **Review 4** (trustless-underwriting, deeper): found 1 MEDIUM (MEDIUM-A) —
+  the review-3 contiguous window was an append-only cumulative aggregate, so it
+  was *poisonable* (a third party could prove one real, distant FEE epoch and
+  permanently zero a borrower's line) and *self-locking* (one lifetime window).
+  Latent (the feature is off in every vault). Rebuilt as a re-declarable
+  per-epoch window: self-sovereign FEE records + self-only window declaration +
+  a fixed-range window, with a recency check. Anti-cherry-pick preserved. Tests
+  added: grief-blocked, self-lockout-fixed, re-declare, stale→0.
 
 These are AI reviews. **A professional human audit is still the gate before
 any real value** — that is the single most important thing this suite does

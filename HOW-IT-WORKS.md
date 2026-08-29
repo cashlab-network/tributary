@@ -182,9 +182,14 @@ oracle verifies a Flare reward claim against the Merkle root Flare's
 FlareSystemsManager has signed on-chain (exact RewardClaim struct + sorted-
 pair keccak, proven end-to-end against a real mainnet root in
 `research/MERKLE-ORACLE-RESEARCH.md`). A lying poster is now *impossible* for
-a proven FEE amount (a provider's own income); `provenTrailingFee` is a fully
-trustless trailing average. Residual: FIP.10 **pass counts** have no on-chain
-commitment anywhere, so they necessarily stay in the trusted-poster lane.
+a proven FEE amount (a provider's own income). `provenTrailingFee` derives a
+trustless trailing average from the beneficiary's OWN self-proven FEE epochs
+over a re-declarable recent window (rebuilt in review 4 — see below). Residual:
+FIP.10 **pass counts** have no on-chain commitment anywhere, so they necessarily
+stay in the trusted-poster lane. The trustless-trailing feature ships DISABLED
+(`requireProvenTrailing` is off in every deployed vault) pending the human audit
+and an integration check that the real Flare FEE beneficiary equals the
+borrower's wallet.
 
 **G2 · Real claim armed and de-risked; execution is calendar-gated.** The
 runbook (`research/REAL-CLAIM-RUNBOOK.md`) established our mid-epoch delegation
@@ -293,7 +298,23 @@ Fixed: the proven epochs must form a **contiguous window** of a minimum length
 or the trailing is zero, so you can't prove only your good epochs. Regression
 tests cover single-peak→0, gap→0, and full-window→honest-average.
 
-Three independent adversarial AI red-team rounds — High/Medium findings fixed,
+**A FOURTH review** attacked that contiguous-window fix and found **1 MEDIUM
+(MEDIUM-A)**: the window was an append-only cumulative aggregate, so it was
+(a) *poisonable* — anyone could prove one real, distant FEE epoch for a borrower
+who had a clean window, permanently breaking contiguity and zeroing their line
+forever, with no un-prove path — and (b) *self-locking* — it never reset, so a
+borrower effectively got one lifetime window. Latent (the feature was off in
+every vault), but a fix-before-enablement item. Rebuilt: the trailing is now
+computed on demand from the borrower's **per-epoch self-proven records over a
+re-declarable recent window**. Three independent barriers make third-party
+griefing structurally impossible (FEE records are self-sovereign; only you
+declare your own window; the window is a fixed range that ignores out-of-window
+epochs), the window is re-declarable so there is no lockout, and a stale window
+fails safe to zero. Cherry-picking stays impossible (the declared range is
+contiguous and must be fully proven). Tests cover grief-blocked,
+self-lockout-fixed, re-declare, and stale→0.
+
+Four independent adversarial AI red-team rounds — High/Medium findings fixed,
 low-severity residuals documented — but that is still not a professional human
 audit, which stays the hard gate before any real value.
 
@@ -314,8 +335,10 @@ pre-signed exit), not unilateral.
 1. **First real reward claim** (G2) — armed and de-risked; fires when epoch
    5994's root signs (~Fri Aug 28).
 2. **Professional audit** (G9) — the hard gate before any real value.
-3. Wire `provenTrailingFee` (G1) into the vault's underwriting so the trailing
-   number itself is trustless, not just provable.
+3. **Enable** the trustless trailing lane (`requireProvenTrailing`) in a vault —
+   the wiring already exists (the vault reads `provenTrailingFee`); enablement is
+   gated on the human audit and an integration check that the real Flare FEE
+   beneficiary equals the borrower's wallet.
 4. Keeper redundancy (G12); VRM staking-side enrollment (G6); benchmark
    surfaced from chain data (G7); syndication/transferability (G11).
 5. A funded v4 redeploy carrying every fix, then wallet-write in the app.
@@ -414,5 +437,5 @@ committed streams, and the commitment must be on-chain-visible. Built:
   => ineligible. Clean story instead of a haircut tier.
 
 Rate for a delegator inherits from the provider's pass record (delegate to a
-3-pass provider, get the 3-pass rate). 118 tests (114 local + 4 fork). StakedLoan.t.sol +
+3-pass provider, get the 3-pass rate). 124 tests (120 local + 4 fork). StakedLoan.t.sol +
 DelegatorLoan.t.sol.
