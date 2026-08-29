@@ -7,6 +7,7 @@ interface IFlareContractRegistry {
 
 interface IFlareSystemsManager {
     function rewardsHash(uint256 rewardEpochId) external view returns (bytes32);
+    function getCurrentRewardEpochId() external view returns (uint24);
 }
 
 /// @title PassLedgerOracle — the chain-published performance record, on-chain
@@ -56,6 +57,9 @@ contract PassLedgerOracle {
     error RootNotSigned(uint24 epochId);
     error InvalidProof();
     error AlreadyProven();
+    error NotBeneficiary(); // REVIEW4-MA: FEE proofs are self-prove-only
+    error WindowTooShort(); // declared window end < minTrailingWindow
+    error WindowNotProven(uint24 epoch); // a gap: that epoch's FEE isn't proven
 
     event Posted(
         address indexed borrower,
@@ -70,6 +74,7 @@ contract PassLedgerOracle {
     event RewardProven(
         bytes20 indexed beneficiary, uint24 indexed epochId, ClaimType claimType, uint120 amount
     );
+    event TrailingWindowDeclared(bytes20 indexed beneficiary, uint24 start, uint24 end);
 
     address public poster; // primary poster + admin
     mapping(address => bool) public isBackupPoster; // G12: redundancy
@@ -83,20 +88,18 @@ contract PassLedgerOracle {
 
     mapping(bytes20 => mapping(uint24 => mapping(ClaimType => Proven))) public provenRewards;
 
-    /// Per-beneficiary FEE aggregate. To make the trailing figure NOT
-    /// cherry-pickable (a borrower proving only their peak epoch), the proven
-    /// FEE epochs must form a CONTIGUOUS window of at least `minTrailingWindow`
-    /// epochs: sum/count is a real trailing average only when
-    /// count == maxEpoch - minEpoch + 1 (no gaps) AND count >= minTrailingWindow.
-    /// Any gap or a too-short set yields a 0 trailing (fails safe).
-    struct FeeAgg {
-        uint256 sum;
-        uint32 count;
-        uint24 minEpoch;
-        uint24 maxEpoch;
-    }
-
-    mapping(bytes20 => FeeAgg) public feeAgg;
+    /// The trailing FEE figure is computed over an EXPLICIT recent window that
+    /// the beneficiary DECLARES: [end - minTrailingWindow + 1, end]. Every epoch
+    /// in it must be self-proven (so a borrower can't skip weak epochs — a fixed
+    /// contiguous range can't exclude a bad epoch), and `end` must be recent
+    /// (checked at read against the current reward epoch — no underwriting off a
+    /// stale historical peak). This replaces the old per-beneficiary cumulative
+    /// aggregate, which was (a) poisonable — anyone could prove one distant FEE
+    /// epoch and permanently break contiguity (REVIEW4-MA) — and (b) a
+    /// self-lockout: it never reset, so a borrower got ONE lifetime window.
+    /// A declared window is re-declarable, so proving newer epochs never locks
+    /// anyone out; they just point at a fresh window. `end == 0` means none.
+    mapping(bytes20 => uint24) public trailingEnd;
 
     /// Same address on every Flare network; the FSM is resolved through it at
     /// call time because Flare redeploys implementations behind the registry.
@@ -127,8 +130,9 @@ contract PassLedgerOracle {
 
     /// @notice Keeper redundancy (G12): the primary poster authorizes backup
     ///         posters, so a single keeper key dying does not freeze the
-    ///         trusted lane. postWithProof is already permissionless, so only
-    ///         this trusted lane needed a redundancy lever.
+    ///         trusted lane. postWithProof needs no redundancy lever: non-FEE
+    ///         proofs are permissionless, and FEE proofs are the borrower's
+    ///         own to make (REVIEW4-MA) — no keeper in that path at all.
     function setBackupPoster(address poster_, bool allowed) external {
         if (msg.sender != poster) revert NotPoster();
         if (poster_ == address(0)) revert ZeroAddress();
@@ -165,12 +169,23 @@ contract PassLedgerOracle {
     // ---------------------------------------------------- trustless lane (G1)
 
     /// @notice Prove a Flare reward claim against the root FlareSystemsManager
-    ///         has signed on-chain. Permissionless — the proof is the
-    ///         authority, not msg.sender. The keeper lifts the leaf `body` and
-    ///         `merkleProof` verbatim from Flare's published
-    ///         reward-distribution-data.json. FEE claims accumulate into the
-    ///         contiguity-checked window used by provenTrailingFee.
+    ///         has signed on-chain. The proof is the authority for the AMOUNT.
+    ///         FEE claims are self-sovereign (REVIEW4-MA): only the beneficiary
+    ///         may populate their own FEE records. Combined with self-only
+    ///         window declaration (declareTrailingWindow) and the fixed-range
+    ///         windowed average (provenTrailingFee), this makes third-party
+    ///         griefing of a borrower's trustless credit line structurally
+    ///         impossible — three independent barriers. Non-FEE claim types
+    ///         never feed underwriting and stay permissionless. The caller lifts
+    ///         the leaf `body` and `merkleProof` verbatim from Flare's published
+    ///         reward-distribution-data.json.
     function postWithProof(RewardClaim calldata claim, bytes32[] calldata merkleProof) external {
+        // REVIEW4-MA: FEE reward records are self-sovereign — you populate only
+        // your own. (Defense-in-depth; the windowed average also ignores any
+        // epoch outside your declared window.)
+        if (claim.claimType == ClaimType.FEE && msg.sender != address(claim.beneficiary)) {
+            revert NotBeneficiary();
+        }
         bytes32 root =
             IFlareSystemsManager(registry.getContractAddressByName("FlareSystemsManager")).rewardsHash(claim.rewardEpochId);
         if (root == bytes32(0)) revert RootNotSigned(claim.rewardEpochId);
@@ -184,36 +199,60 @@ contract PassLedgerOracle {
         if (p.proven) revert AlreadyProven();
         p.amount = claim.amount;
         p.proven = true;
-
-        if (claim.claimType == ClaimType.FEE) {
-            FeeAgg storage a = feeAgg[claim.beneficiary];
-            a.sum += claim.amount;
-            if (a.count == 0) {
-                a.minEpoch = claim.rewardEpochId;
-                a.maxEpoch = claim.rewardEpochId;
-            } else {
-                if (claim.rewardEpochId < a.minEpoch) a.minEpoch = claim.rewardEpochId;
-                if (claim.rewardEpochId > a.maxEpoch) a.maxEpoch = claim.rewardEpochId;
-            }
-            a.count += 1;
-        }
+        // Per-epoch storage IS the source of truth; the trailing window is
+        // computed on demand from it (see declareTrailingWindow / provenTrailingFee).
         emit RewardProven(claim.beneficiary, claim.rewardEpochId, claim.claimType, claim.amount);
     }
 
-    /// @notice Trustless trailing average of proven FEE income (wei/epoch).
-    ///         Returns 0 (fails safe) UNLESS the proven FEE epochs form a
-    ///         CONTIGUOUS window of at least `minTrailingWindow` — i.e.
-    ///         count == maxEpoch - minEpoch + 1 AND count >= minTrailingWindow.
-    ///         This defeats cherry-picking: a borrower can't prove only their
-    ///         peak epoch (count too small) or skip weak epochs (a gap makes
-    ///         count < span, so it reverts to 0). The only way to a nonzero
-    ///         figure is to prove a real, unbroken run of recent epochs.
+    /// @notice Declare (or re-declare) the recent contiguous FEE window this
+    ///         beneficiary wants underwritten: [end - minTrailingWindow + 1, end].
+    ///         Self-only (the window is keyed to msg.sender). Every epoch in the
+    ///         window must already be self-proven — a gap reverts, so the range
+    ///         is contiguous by construction and cannot skip a weak epoch.
+    ///         Re-declarable: proving newer epochs never locks you out; point at
+    ///         a fresh window. Recency is enforced later, at read.
+    function declareTrailingWindow(uint24 end) external {
+        bytes20 who = bytes20(msg.sender);
+        if (end < minTrailingWindow) revert WindowTooShort();
+        uint24 start = uint24(uint256(end) + 1 - minTrailingWindow);
+        for (uint24 e = start; e <= end; e++) {
+            if (!provenRewards[who][e][ClaimType.FEE].proven) revert WindowNotProven(e);
+        }
+        trailingEnd[who] = end;
+        emit TrailingWindowDeclared(who, start, end);
+    }
+
+    /// @notice Trustless trailing average of proven FEE income (wei/epoch),
+    ///         computed from the beneficiary's DECLARED window and re-derived
+    ///         from the per-epoch source of truth every read. Returns 0 (fails
+    ///         safe) if: no window is declared; the window is no longer fully
+    ///         proven; or the window is STALE — its end lags the current reward
+    ///         epoch by more than minTrailingWindow (so a borrower can't
+    ///         underwrite off a historical peak). Cherry-picking is impossible:
+    ///         the window is a fixed contiguous range, so a skipped weak epoch
+    ///         has no valid window that spans it.
     function provenTrailingFee(bytes20 beneficiary) external view returns (uint256) {
-        FeeAgg storage a = feeAgg[beneficiary];
-        if (a.count < minTrailingWindow) return 0;
-        // contiguity: no gaps in [minEpoch, maxEpoch]
-        if (uint256(a.count) != uint256(a.maxEpoch) - uint256(a.minEpoch) + 1) return 0;
-        return a.sum / a.count;
+        uint24 end = trailingEnd[beneficiary];
+        if (end < minTrailingWindow) return 0;
+        // recency: window end must be within minTrailingWindow of "now"
+        uint24 current =
+            IFlareSystemsManager(registry.getContractAddressByName("FlareSystemsManager")).getCurrentRewardEpochId();
+        if (current > end && current - end > minTrailingWindow) return 0;
+        (bool ok, uint256 sum) = _feeWindowSum(beneficiary, end);
+        if (!ok) return 0;
+        return sum / minTrailingWindow;
+    }
+
+    /// Sum the FEE amounts over [end - minTrailingWindow + 1, end]; ok=false on
+    /// any unproven epoch. Caller guarantees end >= minTrailingWindow.
+    function _feeWindowSum(bytes20 b, uint24 end) internal view returns (bool ok, uint256 sum) {
+        uint24 start = uint24(uint256(end) + 1 - minTrailingWindow);
+        for (uint24 e = start; e <= end; e++) {
+            Proven storage p = provenRewards[b][e][ClaimType.FEE];
+            if (!p.proven) return (false, 0);
+            sum += p.amount;
+        }
+        return (true, sum);
     }
 
     /// Commutative Merkle verification (OpenZeppelin MerkleProof semantics):

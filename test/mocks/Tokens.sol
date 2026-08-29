@@ -93,6 +93,7 @@ contract MockFtso {
 /// oracle lane.
 contract MockFSM {
     mapping(uint256 => bytes32) public roots;
+    uint24 public currentEpoch; // for provenTrailingFee recency (REVIEW4-MA)
 
     function setRoot(uint256 epochId, bytes32 root) external {
         roots[epochId] = root;
@@ -100,6 +101,14 @@ contract MockFSM {
 
     function rewardsHash(uint256 epochId) external view returns (bytes32) {
         return roots[epochId];
+    }
+
+    function setCurrentEpoch(uint24 e) external {
+        currentEpoch = e;
+    }
+
+    function getCurrentRewardEpochId() external view returns (uint24) {
+        return currentEpoch;
     }
 }
 

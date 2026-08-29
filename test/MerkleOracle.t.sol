@@ -8,7 +8,8 @@ import {MockFSM, MockRegistry} from "./mocks/Tokens.sol";
 /// The trustless lane (G1): postWithProof verifies a reward claim against the
 /// root Flare's FlareSystemsManager signed. Tested with a synthetic 2-leaf
 /// tree (the verification logic is identical to the mainnet path proven by
-/// re-derivation in research/MERKLE-ORACLE-RESEARCH.md §1d).
+/// re-derivation in research/MERKLE-ORACLE-RESEARCH.md §1d). FEE proofs are
+/// self-sovereign (REVIEW4-MA), so proofs are submitted as the provider.
 contract MerkleOracleTest is Test {
     PassLedgerOracle oracle;
     MockFSM fsm;
@@ -21,6 +22,7 @@ contract MerkleOracleTest is Test {
         fsm = new MockFSM();
         registry = new MockRegistry(address(fsm));
         oracle = new PassLedgerOracle(address(this), IFlareContractRegistry(address(registry)), 1);
+        fsm.setCurrentEpoch(427); // "now" — a window ending at 426 is recent
     }
 
     function _claim(uint120 amount, PassLedgerOracle.ClaimType t)
@@ -43,18 +45,21 @@ contract MerkleOracleTest is Test {
         // 2-leaf tree: our FEE claim + a sibling
         PassLedgerOracle.RewardClaim memory feeClaim = _claim(33_449 ether, PassLedgerOracle.ClaimType.FEE);
         PassLedgerOracle.RewardClaim memory sibling = _claim(999 ether, PassLedgerOracle.ClaimType.WNAT);
-        bytes32 leafA = _leaf(feeClaim);
-        bytes32 leafB = _leaf(sibling);
-        bytes32 root = _sorted(leafA, leafB);
+        bytes32 root = _sorted(_leaf(feeClaim), _leaf(sibling));
         fsm.setRoot(EPOCH, root);
 
         bytes32[] memory proof = new bytes32[](1);
-        proof[0] = leafB;
+        proof[0] = _leaf(sibling);
+        vm.prank(address(PROVIDER)); // REVIEW4-MA: FEE proofs are self-sovereign
         oracle.postWithProof(feeClaim, proof);
 
         (uint120 amt, bool proven) = oracle.provenRewards(PROVIDER, EPOCH, PassLedgerOracle.ClaimType.FEE);
         assertEq(amt, 33_449 ether);
         assertTrue(proven);
+
+        // declare the (1-epoch) window and read the trailing
+        vm.prank(address(PROVIDER));
+        oracle.declareTrailingWindow(EPOCH);
         assertEq(oracle.provenTrailingFee(PROVIDER), 33_449 ether);
     }
 
@@ -65,6 +70,7 @@ contract MerkleOracleTest is Test {
 
         bytes32[] memory badProof = new bytes32[](1);
         badProof[0] = keccak256("not the sibling");
+        vm.prank(address(PROVIDER));
         vm.expectRevert(PassLedgerOracle.InvalidProof.selector);
         oracle.postWithProof(feeClaim, badProof);
     }
@@ -79,6 +85,7 @@ contract MerkleOracleTest is Test {
         PassLedgerOracle.RewardClaim memory inflated = _claim(999_999 ether, PassLedgerOracle.ClaimType.FEE);
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = sib;
+        vm.prank(address(PROVIDER));
         vm.expectRevert(PassLedgerOracle.InvalidProof.selector);
         oracle.postWithProof(inflated, proof);
     }
@@ -86,6 +93,7 @@ contract MerkleOracleTest is Test {
     function test_unsignedEpochReverts() public {
         PassLedgerOracle.RewardClaim memory c = _claim(1 ether, PassLedgerOracle.ClaimType.FEE);
         // no root set for EPOCH -> rewardsHash returns 0
+        vm.prank(address(PROVIDER));
         vm.expectRevert(abi.encodeWithSelector(PassLedgerOracle.RootNotSigned.selector, EPOCH));
         oracle.postWithProof(c, new bytes32[](0));
     }
@@ -96,33 +104,59 @@ contract MerkleOracleTest is Test {
         fsm.setRoot(EPOCH, _sorted(_leaf(c), sib));
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = sib;
+        vm.prank(address(PROVIDER));
         oracle.postWithProof(c, proof);
+        vm.prank(address(PROVIDER));
         vm.expectRevert(PassLedgerOracle.AlreadyProven.selector);
         oracle.postWithProof(c, proof);
     }
 
+    // Averaging over a multi-epoch window (needs minTrailingWindow = 2).
     function test_trailingAveragesMultipleFeeEpochs() public {
-        // two epochs of proven FEE -> trailing = average
-        _proveFee(426, 100 ether);
-        _proveFee(427, 300 ether);
-        assertEq(oracle.provenTrailingFee(PROVIDER), 200 ether); // (100+300)/2
+        PassLedgerOracle o2 = new PassLedgerOracle(address(this), IFlareContractRegistry(address(registry)), 2);
+        fsm.setCurrentEpoch(428);
+        _proveTo(o2, 426, 100 ether);
+        _proveTo(o2, 427, 300 ether);
+        vm.prank(address(PROVIDER));
+        o2.declareTrailingWindow(427);
+        assertEq(o2.provenTrailingFee(PROVIDER), 200 ether); // (100+300)/2
     }
 
-    function _proveFee(uint24 epochId, uint120 amount) internal {
-        PassLedgerOracle.RewardClaim memory c =
-            PassLedgerOracle.RewardClaim({rewardEpochId: epochId, beneficiary: PROVIDER, amount: amount, claimType: PassLedgerOracle.ClaimType.FEE});
+    function _proveTo(PassLedgerOracle o, uint24 epochId, uint120 amount) internal {
+        PassLedgerOracle.RewardClaim memory c = PassLedgerOracle.RewardClaim({
+            rewardEpochId: epochId,
+            beneficiary: PROVIDER,
+            amount: amount,
+            claimType: PassLedgerOracle.ClaimType.FEE
+        });
         bytes32 sib = keccak256(abi.encode("sib", epochId));
         fsm.setRoot(epochId, _sorted(_leaf(c), sib));
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = sib;
-        oracle.postWithProof(c, proof);
+        vm.prank(address(PROVIDER));
+        o.postWithProof(c, proof);
     }
 
     // single-leaf tree (empty proof): leaf IS the root
     function test_singleLeafEmptyProof() public {
         PassLedgerOracle.RewardClaim memory c = _claim(7 ether, PassLedgerOracle.ClaimType.FEE);
         fsm.setRoot(EPOCH, _leaf(c));
+        vm.prank(address(PROVIDER));
         oracle.postWithProof(c, new bytes32[](0));
+        vm.prank(address(PROVIDER));
+        oracle.declareTrailingWindow(EPOCH);
         assertEq(oracle.provenTrailingFee(PROVIDER), 7 ether);
+    }
+
+    // A third party cannot populate the provider's FEE records (REVIEW4-MA).
+    function test_thirdPartyFeeProofReverts() public {
+        PassLedgerOracle.RewardClaim memory c = _claim(5 ether, PassLedgerOracle.ClaimType.FEE);
+        bytes32 sib = keccak256("s2");
+        fsm.setRoot(EPOCH, _sorted(_leaf(c), sib));
+        bytes32[] memory proof = new bytes32[](1);
+        proof[0] = sib;
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(PassLedgerOracle.NotBeneficiary.selector);
+        oracle.postWithProof(c, proof);
     }
 }
