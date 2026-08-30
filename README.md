@@ -13,7 +13,7 @@ Contracts hold the funds. Code enforces the terms. Tributary is the venue,
 
 ---
 
-## Status (2026-08-27)
+## Status (2026-08-29)
 
 Both loan types built and live on Coston2. **125 tests** (121 local + 4
 Coston2 fork-integration against the real WNat + FtsoV2). **Five independent

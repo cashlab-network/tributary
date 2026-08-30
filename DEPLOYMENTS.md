@@ -56,9 +56,9 @@ routeToCollector callable by anyone.
 
 FLR/USD feed id (verified live): `0x01464c522f55534400000000000000000000000000`.
 
-## Coston2 — 2026-08-27 — v3 (two flavors, both fixes, real epoch ids), LIVE
+## Coston2 — 2026-08-27 — v3 (two loan types, both fixes, real epoch ids) — earlier exhibit
 
-The current stack. Carries both same-day fixes (chain-read epoch duration
+Carries both same-day fixes (chain-read epoch duration
 21,600s; escrow claim self-enrollment), per-chain policy config, the ±25%
 price band, and the **first fixed-dollar loan**: $0.05 borrowed in real
 USDT0, repaid in FLR valued by the REAL FtsoV2 — lender received
@@ -69,7 +69,7 @@ epoch id (5992). Loan 1: REPAID.
 
 | Contract | Address |
 |---|---|
-| LoanVault v3 (two-flavor) | `0x8Ad5f9654de710426985Ddc0696Fa2663D3c2Fe4` |
+| LoanVault v3 (two loan types) | `0x8Ad5f9654de710426985Ddc0696Fa2663D3c2Fe4` |
 | PassLedgerOracle v3 | `0x0a124dfA88Bd463354B4C4D2E50C5F91FdAA165F` |
 | RewardCollector (loan 1) | `0x25069B8A2C525457d6512870790a11f6eDEa720d` |
 
@@ -81,4 +81,24 @@ the deployer topped up; finish interrupted runs with plain `cast send`
 Real delegation live since 2026-08-27: borrower EOA WFLR → provider
 delegation address `0x07f5053C867AE107Db15A38Aa4421b2c24aC4e51`; an epoch
 watcher wakes the session at epoch 5994 for the first REAL executor claim.
+
+## Coston2 — 2026-08-28 — v4 (self-lend, security-fixed) — CURRENT, the app points here
+
+The vault `app/app.js` reads. A full self-lending loan (one wallet plays both
+lender and borrower) run end-to-end on 2026-08-28: loan 1 offer → draw →
+Repaid, verified on-chain. Carries the post-review security fixes.
+
+| Contract | Address |
+|---|---|
+| LoanVault v4 (self-lend) | `0xe7ec100ea45af3586052E435006B983343dcd550` |
+| PassLedgerOracle v4 | `0x444D6680107F9F0D5d08F07e73e1A4028c74a614` |
+
+**Source is ahead of every live deployment (read this before checking a live
+vault against `src/`).** The current `src/` adds the Tier-A staked door
+(`offerStaked`, reads PChainStakeMirror), the everyday-holder stream door
+(`offerStream`), and the rebuilt trustless trailing oracle (review-4/5) — all
+covered by the unit + Coston2 fork test suites, but NOT yet redeployed. A funded
+redeploy carrying every fix follows the professional audit. So: the live
+exhibits above prove the core loan lifecycle on-chain; the newest features are
+proven by tests, pending the audit gate.
 

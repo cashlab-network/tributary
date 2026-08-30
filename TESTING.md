@@ -22,7 +22,7 @@ local + 4 fork tests against live Coston2; count re-verified by a full run
   `RewardManager` exactly (see `research/MERKLE-ORACLE-RESEARCH.md`, which
   re-derives a real mainnet root end to end).
 - **Fork integration** (`ForkIntegration.t.sol`, `forge test --match-contract
-  ForkIntegration`): both flavors, default→settle, lender transfer, and the
+  ForkIntegration`): both loan types, default→settle, lender transfer, and the
   single-wallet self-lend flow — all against the REAL Coston2 WNat + FtsoV2 +
   ClaimSetupManager on a live fork.
 
