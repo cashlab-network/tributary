@@ -314,7 +314,22 @@ fails safe to zero. Cherry-picking stays impossible (the declared range is
 contiguous and must be fully proven). Tests cover grief-blocked,
 self-lockout-fixed, re-declare, and stale→0.
 
-Four independent adversarial AI red-team rounds — High/Medium findings fixed,
+**A FIFTH review** (a fresh independent pass on the review-4 rebuild) found
+**1 MEDIUM**: the recency check let a declared window's end lag the current
+epoch by a full `minTrailingWindow`, so a borrower whose income had just
+collapsed could end the window *before* the collapse and underwrite off the
+pre-collapse peak, excluding up to `minTrailingWindow` recent real epochs.
+Bounded (the margin cap still applied) and latent (feature off), but it
+contradicted the "no underwriting off a peak" property. Fixed: recency is
+tightened so the window must end at the most recent completed epoch
+(`MAX_RECENCY_LAG = 1`, a risk parameter for the human audit to confirm against
+Flare's root-signing cadence), and the check fails safe if the current epoch
+can't be established. Accepted low-severity residuals from the same pass, flagged
+for the audit: there is no on-chain floor on `minTrailingWindow` (a
+mis-parameterized deploy could weaken the window — production scripts use 8), and
+the `uint24` epoch counter would revert at 2^24 (astronomically far off).
+
+Five independent adversarial AI red-team rounds — High/Medium findings fixed,
 low-severity residuals documented — but that is still not a professional human
 audit, which stays the hard gate before any real value.
 
@@ -437,5 +452,5 @@ committed streams, and the commitment must be on-chain-visible. Built:
   => ineligible. Clean story instead of a haircut tier.
 
 Rate for a delegator inherits from the provider's pass record (delegate to a
-3-pass provider, get the 3-pass rate). 124 tests (120 local + 4 fork). StakedLoan.t.sol +
+3-pass provider, get the 3-pass rate). 125 tests (121 local + 4 fork). StakedLoan.t.sol +
 DelegatorLoan.t.sol.

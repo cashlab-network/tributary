@@ -255,6 +255,31 @@ contract ProvenUnderwritingTest is Test {
         assertEq(oracle.provenTrailingFee(bytes20(borrower)), 0);
     }
 
+    // RECENCY TIGHTENED (review-5 MEDIUM): a borrower can't end the window
+    // BEFORE recent (possibly weak) epochs to exclude them. The window must end
+    // at the most recent completed epoch (within MAX_RECENCY_LAG), so ending
+    // early to dodge a recent collapse just makes the figure fail safe to 0.
+    function test_recencySlack_cannotEndWindowEarlyToHideRecentEpochs() public {
+        _proveFee(5989, 20_000 ether);
+        _proveFee(5990, 20_000 ether);
+        _proveFee(5991, 20_000 ether);
+        _proveFee(5992, 20_000 ether);
+        fsm.setCurrentEpoch(5996); // 4 epochs have passed since 5992
+
+        // ending at the old peak is declarable, but too stale to underwrite
+        _declare(5992);
+        assertEq(oracle.provenTrailingFee(bytes20(borrower)), 0); // current-end=4 > MAX_RECENCY_LAG=1
+
+        // only a window ending at the most recent completed epoch (5995) is
+        // fresh — which forces the recent epochs into the average (had they been
+        // weak, the figure would drop; they can't be skipped)
+        _proveFee(5993, 20_000 ether);
+        _proveFee(5994, 20_000 ether);
+        _proveFee(5995, 20_000 ether);
+        _declare(5995);
+        assertEq(oracle.provenTrailingFee(bytes20(borrower)), 20_000 ether); // end = current-1, fresh
+    }
+
     // Non-FEE claim types stay permissionless and cannot touch the FEE window.
     function test_nonFeeProof_staysPermissionless() public {
         _proveFee(5988, 10_000 ether);

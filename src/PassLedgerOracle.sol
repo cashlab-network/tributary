@@ -101,6 +101,15 @@ contract PassLedgerOracle {
     /// anyone out; they just point at a fresh window. `end == 0` means none.
     mapping(bytes20 => uint24) public trailingEnd;
 
+    /// Recency tolerance (in reward epochs) for a declared window's END: it must
+    /// end no more than this far behind the current reward epoch, else
+    /// `provenTrailingFee` fails safe to 0. Kept at 1 (window ends at the last
+    /// completed epoch) so a borrower CANNOT exclude recent, possibly weak,
+    /// epochs by ending the window early (review-5 MEDIUM). RISK PARAMETER: the
+    /// human audit should confirm 1 against Flare's real root-signing cadence
+    /// and raise it only if signing reliably lags more than one epoch.
+    uint24 public constant MAX_RECENCY_LAG = 1;
+
     /// Same address on every Flare network; the FSM is resolved through it at
     /// call time because Flare redeploys implementations behind the registry.
     IFlareContractRegistry public immutable registry;
@@ -227,17 +236,20 @@ contract PassLedgerOracle {
     ///         from the per-epoch source of truth every read. Returns 0 (fails
     ///         safe) if: no window is declared; the window is no longer fully
     ///         proven; or the window is STALE — its end lags the current reward
-    ///         epoch by more than minTrailingWindow (so a borrower can't
-    ///         underwrite off a historical peak). Cherry-picking is impossible:
-    ///         the window is a fixed contiguous range, so a skipped weak epoch
-    ///         has no valid window that spans it.
+    ///         epoch by more than MAX_RECENCY_LAG (so a borrower can neither
+    ///         underwrite off a historical peak NOR exclude recent weak epochs
+    ///         by ending the window early). Cherry-picking is impossible: the
+    ///         window is a fixed contiguous range, so a skipped weak epoch has
+    ///         no valid window that spans it.
     function provenTrailingFee(bytes20 beneficiary) external view returns (uint256) {
         uint24 end = trailingEnd[beneficiary];
         if (end < minTrailingWindow) return 0;
-        // recency: window end must be within minTrailingWindow of "now"
+        // recency: the window must end at (near) the most recent completed
+        // epoch, so a borrower can't exclude recent weak epochs by ending early.
+        // Fails safe if "now" can't be established (current == 0, or <= end).
         uint24 current =
             IFlareSystemsManager(registry.getContractAddressByName("FlareSystemsManager")).getCurrentRewardEpochId();
-        if (current > end && current - end > minTrailingWindow) return 0;
+        if (current <= end || current - end > MAX_RECENCY_LAG) return 0;
         (bool ok, uint256 sum) = _feeWindowSum(beneficiary, end);
         if (!ok) return 0;
         return sum / minTrailingWindow;

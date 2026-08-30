@@ -5,7 +5,7 @@ so you can aim your effort at what hasn't.
 
 ## The suite
 
-`forge test` — **124 tests** across unit, fuzz, and fork-integration (120
+`forge test` — **125 tests** across unit, fuzz, and fork-integration (121
 local + 4 fork tests against live Coston2; count re-verified by a full run
 2026-08-29).
 
@@ -64,6 +64,13 @@ been attacked by **independent sessions told to refute, not review**:
   per-epoch window: self-sovereign FEE records + self-only window declaration +
   a fixed-range window, with a recency check. Anti-cherry-pick preserved. Tests
   added: grief-blocked, self-lockout-fixed, re-declare, stale→0.
+- **Review 5** (fresh pass on the rebuild): found 1 MEDIUM — recency slack let
+  a borrower exclude up to `minTrailingWindow` recent epochs by ending the
+  window early (stale-peak underwrite). Fixed: the window must end at the most
+  recent completed epoch (`MAX_RECENCY_LAG = 1`), fail-safe if "now" is
+  unavailable. Test added (`test_recencySlack_cannotEndWindowEarlyToHideRecentEpochs`).
+  Residuals flagged for the audit: no `minTrailingWindow` floor (production uses
+  8); `uint24` epoch counter overflows at 2^24 (not reachable).
 
 These are AI reviews. **A professional human audit is still the gate before
 any real value** — that is the single most important thing this suite does
