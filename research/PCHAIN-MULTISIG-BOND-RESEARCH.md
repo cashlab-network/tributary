@@ -302,8 +302,16 @@ reward economics, which is exactly the shape a validator-credit product wants.
 
 - **No end-to-end test performed.** Everything above is source-level verification of go-flare
   v1.14.0 + contracts; no multisig-StakeOuts tx has been issued by us on Coston2/mainnet. A
-  Coston2 dry-run (min stake 100k CFLR, min duration 24h per inflation_settings.go:219-231) is
-  the mandatory next step before any product claim.
+  Coston2 dry-run is the mandatory next step before any product claim.
+  **CORRECTION (2026-08-31):** an earlier draft here cited "min stake 100k CFLR, 24h" — those
+  are **Coston** (chain 7, `getCostonInflationSettings`, lines ~219–231), the wrong network.
+  **Coston2** (chain 114 = `CostwoID`/"costwo", `getCostwoInflationSettings`) minimums, past all
+  phase gates → Granite branch: **delegator 50,000 C2FLR / 14-day** min duration; **validator
+  1,000,000 C2FLR / 60-day** (min del-fee 20%). Verified against
+  `getCostwoInflationSettings` + `utils/constants/network_ids.go` and confirmed against the
+  installed `flarejs@4.1.1`. Operational implication: the funding floor (50k C2FLR vs a
+  100-C2FLR/day faucet), not the code, is the real gate on a dry-run; and no "watch the principal
+  return" demo can finish sooner than 14 days.
 - Whether the deployed mainnet binary is exactly v1.14.x (Granite activation 2026-07-14 implies
   ≥v1.13, and v1.14.0 is the current release, but I did not fingerprint a live node).
 - Pre-signed-future-UTXO spend flow (§5 step 4) — consensus code appears to permit it; untested.
@@ -323,7 +331,7 @@ go-flare @ v1.14.0 (https://github.com/flare-foundation/go-flare/tree/v1.14.0):
 - `avalanchego/vms/platformvm/txs/add_permissionless_validator_tx.go` (struct lines 35–59; SyntacticVerify 121–185)
 - `avalanchego/vms/platformvm/txs/add_validator_tx.go` (legacy struct, lines 29–42)
 - `avalanchego/vms/platformvm/txs/executor/staker_tx_verification.go` (AddValidatorTx post-Durango kill 101–104; Flare Cortina gate 533–537; permissionless verification 509–639)
-- `avalanchego/vms/platformvm/txs/executor/inflation_settings.go` (Flare Granite params 68–81; Coston2 219–231)
+- `avalanchego/vms/platformvm/txs/executor/inflation_settings.go` (Flare Granite params 68–81; **Coston2/costwo** `getCostwoInflationSettings` ~102–143 — NOT lines 219–231, which are Coston/chain-7); `avalanchego/utils/constants/network_ids.go` (CostwoID=114 "costwo", CostonID=7 "coston")
 - `avalanchego/vms/platformvm/txs/executor/proposal_tx_executor.go` (stake refund 417–439; reward>0 gate 443–445)
 - `avalanchego/vms/platformvm/reward/calculator.go` (Calculate → 0, lines 35–38)
 - `avalanchego/genesis/genesis_flare.go` (SupplyCap 0, lines 62–67)
