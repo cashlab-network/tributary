@@ -1,5 +1,38 @@
 # Tributary deployments
 
+## Test coverage (reproducible: `forge test`)
+
+133 automated tests, 0 failing. Three layers:
+
+- **Unit** — every LoanVault / oracle / escrow / terms path, including the
+  adversarial-review regressions (each fix ships with the failing case).
+- **Scenario + fuzz** (`test/Scenarios.t.sol`) — the full loan lifecycle run at
+  volume, asserting **wei-exact conservation of the lender and borrower balance
+  deltas** on *every* loan (the credited amounts are pinned to the exact debt /
+  margin / debt+fee the contract should pay; a mispayment flips them):
+  - ~80 (exactly 79) deterministic loans across a matrix of sizes × terms
+    (2–16 epochs) × paths: full repay, partial-then-full, interest accrual,
+    maturity default → settle, dead-stream default → settle, and lender-position
+    transfer mid-loan.
+  - Two fuzz invariants — `testFuzz_fullLifecycle_conserves` and
+    `testFuzz_deadStreamDefault_neverJackpot` — that repay/settle randomized
+    loans (size, term, epochs elapsed) and check the delta conservation, plus
+    that a default credits the lender exactly debt+fee. **10,000 randomized
+    loans** (`FOUNDRY_FUZZ_RUNS=5000`, 2 invariants) pass with zero
+    counterexamples; 256/run (512 loans) in CI by default.
+  - The collateral-shortfall cap (`due > margin` → settlement takes only the
+    margin) has its own dedicated unit test (`test_settle_shortfallCapsAtMargin`
+    in `LoanVault.t.sol`); zero-residual / no-stuck-funds is verified in base
+    unit tests and on-chain (see the v1 exhibit "vault + escrow residuals 0"),
+    not across the volume suite.
+- **Fork integration** (`test/ForkIntegration.t.sol`) — 4 tests running loans
+  against **real Coston2 WNat + FtsoV2** state (fixed-FLR full circle,
+  fixed-dollar priced by the real FTSO, default + lender transfer, self-lend).
+
+Plus the live on-chain exhibits below: both loan types completed end-to-end on
+public Coston2, and a claim-bound account enforced on Flare's real
+ClaimSetupManager executor path.
+
 ## Coston2 (chain 114) — 2026-08-27 — v1 demo, LIVE
 
 First full life-of-a-loan executed on the public testnet: offered,
